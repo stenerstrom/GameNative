@@ -71,6 +71,10 @@ If you'd like to chip in, you can support the project on [Ko-fi](https://ko-fi.c
 
 Want to help out? Message us to get into the **#development** channel on [Discord](https://discord.gg/2hKv4VfZfE), or open a thread there. Things we're currently looking for help with live on our [Trello board](https://trello.com/b/vGRkFoAM/open-source-board).
 
+### MagicPad AI development prototype
+
+This fork includes an opt-in Android ChatGPT assistant. See [build, install, authentication and test instructions](docs/MAGICPAD_AI_PROTOTYPE.md) for the separate **GameNative AI Dev** app (`app.gamenative.aidev`). Device/account verification is still required.
+
 ### Building
 
 Most of the time you don't need this — if you just want to play, grab the release above. This is for contributors.

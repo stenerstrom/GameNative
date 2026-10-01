@@ -13,6 +13,8 @@ plugins {
     alias(libs.plugins.room)
 }
 
+val aiDev = providers.gradleProperty("aiDev").orNull == "true"
+
 val keystorePropertiesFile = rootProject.file("app/keystores/keystore.properties")
 val keystoreProperties: Properties? = if (keystorePropertiesFile.exists()) {
     Properties().apply {
@@ -57,6 +59,12 @@ android {
 
     defaultConfig {
         applicationId = "app.gamenative"
+        buildConfigField("boolean", "AI_ASSISTANT_ENABLED", "false")
+        manifestPlaceholders["appLabel"] = "@string/app_name"
+        manifestPlaceholders["launchScheme"] = "gamenative"
+        manifestPlaceholders["homeScheme"] = "home"
+        manifestPlaceholders["nxmScheme"] = "nxm"
+        manifestPlaceholders["nexusScheme"] = "app.gamenative"
 
         minSdk = 26
 
@@ -163,6 +171,17 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("boolean", "AI_ASSISTANT_ENABLED", aiDev.toString())
+            if (aiDev) {
+                applicationIdSuffix = ".aidev"
+                versionNameSuffix = "-ai-dev"
+                manifestPlaceholders["appLabel"] = "GameNative AI Dev"
+                manifestPlaceholders["launchScheme"] = "gamenative-aidev"
+                manifestPlaceholders["homeScheme"] = "gamenative-aidev-home"
+                // Isolate fixed upstream callbacks. Nexus/Discord linking is disabled in this fork.
+                manifestPlaceholders["nxmScheme"] = "gamenative-aidev-nxm"
+                manifestPlaceholders["nexusScheme"] = "app.gamenative.aidev"
+            }
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false

@@ -615,7 +615,7 @@ abstract class BaseAppScreen {
         val gameId = getGameId(libraryItem)
         val gameSource = getGameSource(libraryItem).name
         val gameName = getGameName(context, libraryItem)
-        val uri = "gamenative://run?appid=$gameId&gamesource=$gameSource"
+        val uri = "${if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) "gamenative-aidev" else "gamenative"}://run?appid=$gameId&gamesource=$gameSource"
         val labelText = context.getString(R.string.app_name) + " $gameName"
         val clipboardManager = LocalClipboard.current
         val scope = rememberCoroutineScope()
@@ -1241,6 +1241,12 @@ abstract class BaseAppScreen {
             getTestGraphicsOption(context, libraryItem, onTestGraphics)?.let { menuOptions.add(it) }
             getPlayWithDiagnosticsOption(context, libraryItem, onPlayWithDiagnostics)?.let { menuOptions.add(it) }
             getAiDebugRunOption(context, libraryItem, onAiDebugRun)?.let { menuOptions.add(it) }
+            if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                menuOptions.add(AppMenuOption(AppOptionMenuType.GameAssistant, onClick = {
+                    context.startActivity(Intent(context, app.gamenative.assistant.GameAssistantActivity::class.java)
+                        .putExtra("app_id", libraryItem.appId))
+                }))
+            }
             getShareDiagnosticsOption(context, libraryItem)?.let { menuOptions.add(it) }
             getResetContainerOption(context, libraryItem)?.let { menuOptions.add(it) }
             getCreateShortcutOption(context, libraryItem)?.let { menuOptions.add(it) }

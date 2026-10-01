@@ -20,9 +20,9 @@ object IntentLaunchManager {
 
     private const val EXTRA_GAME_SOURCE = "game_source"
     private const val EXTRA_CONTAINER_CONFIG = "container_config"
-    private const val ACTION_LAUNCH_GAME = "app.gamenative.LAUNCH_GAME"
+    private val ACTION_LAUNCH_GAME = "${app.gamenative.BuildConfig.APPLICATION_ID}.LAUNCH_GAME"
     private const val ACTION_VIEW = "android.intent.action.VIEW"
-    private const val URI_SCHEME = "gamenative"
+    private val URI_SCHEME = if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) "gamenative-aidev" else "gamenative"
     private const val URI_HOST = "run"
     private const val MAX_CONFIG_JSON_SIZE = 50000 // 50KB limit to prevent memory exhaustion
 

@@ -1,0 +1,190 @@
+# GameNative AI Dev – MagicPad-prototyp
+
+Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da90ca8cc3cf8b29e21f9`.
+Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
+Kontrollerad dokumentation: 2026-10-01. Ingen `AGENTS.md` fanns i denna upstream-version.
+
+## Vad som implementeras
+
+En Kotlin-assistent i Android-appen för ett valt, installerat spel. Egen provider använder officiell **Sign in with ChatGPT** och `POST https://api.openai.com/v1/responses` direkt. Ingen Codex-binär, separat dator/server, importerad Codex-token eller API-nyckel behövs vid användning. Inloggningssteget öppnar OpenAI i en Android Custom Tab/systemwebbläsare; användaren återvänder sedan till appen. Fråga, diagnostik, svar, godkännande och återställning finns i appen.
+
+Milstolpen är en avgränsad analys med ett förslag per anrop, utan autonom agentloop. Modellen kan föreslå befintlig FPS-begränsning och en liten tillåten uppsättning containerupplösningar. Appen sköter läsning, validering, tillämpning och återställning. Modellen kan inte starta spel, köra shell, ändra godtyckliga filer eller skriva inställningar på egen hand.
+
+Det finns också **Local 30 FPS test proposal (no AI)**. Detta är ett uttryckligen lokalt provförslag som testar ändringsflödet utan konto eller nätverk, och är inte ett AI-svar.
+
+## OpenAI-inloggning: verifierat stöd och kvarstående verifiering
+
+De aktuella officiella dokumenten beskriver abonnemangsanvändning för öppna och lokalt körda projekt, med behöriga Plus-/Pro-konton. Kontoinloggning (`openid profile email`) och rätt att göra modell-anrop (`resource.invoke chatgpt.tokens.use.direct`, tillsammans med `offline_access`) är skilda saker.
+
+Den valda vägen är native OAuth + Responses, inte Codex app-server. OpenAI beskriver app-server som ett valfritt sätt att använda samma auktoriserade OAuth-token. De lästa sidorna etablerar inte något färdigt Android-SDK eller stöd för att paketera och köra Codex på Android. Vår implementation av loopback-flödet är därför en Android-prototyp av det dokumenterade protokollet och kräver enhetstest.
+
+- Stabil slumpmässig `ext_agent_host_id`, UUID per appinstallation.
+- Dynamisk första registrering med `dynamic_agent_client`; utfärdat klient-ID sparas före kodväxling och återanvänds vid återinloggning.
+- Separata anslutningar/konton/workspaces, även när e-postadressen är samma.
+- Ny `state`, OIDC `nonce` och PKCE S256 per försök.
+- Retur enbart till `http://127.0.0.1:<ledig-port>/auth/callback`. Lyssnaren startas före webbläsaren och stängs vid avslut eller timeout. Ingen egen påhittad OAuth-returadress används.
+- RS256-signatur mot OpenAI JWKS, issuer, audience, azp vid flera audiences, expiry, nonce och subject verifieras.
+- AES-GCM-krypterade credentials med Android Keystore, atomisk lagring i `noBackupFilesDir`. Inga tokens till modell, loggar, Git, browser storage eller andra appar.
+- Serialiserad tokenförnyelse, roterade tokens sparas tillsammans. Utloggning försöker återkalla refresh-token och rensar lokalt; misslyckad fjärråterkallelse visas.
+- Modellval hämtas från den aktuella anslutningens `/v1/models`. Listan bevisar inte behörighet.
+- **Verify AI access** gör ett litet faktiskt modell-anrop. Endast ett icke-tomt svar med `response.completed` räknas som verifierat. `response.failed`, ofullständiga eller avbrutna strömmar räknas inte.
+- `store:false`, `stream:true`, array-formad input, instructions och namespacat function-verktyg. Ingen `temperature`, `max_output_tokens`, `previous_response_id`, hosted MCP eller tool search.
+- Ingen separat API-debitering och inget automatiskt byte av betalningsväg. Användaren styr appens abonnemangsandel och eventuella credits i ChatGPT → Settings → Usage.
+
+**Ditt konto är inte verifierat i den här arbetsmiljön.** Ingen enhet är ansluten och inget OAuth-samtycke har genomförts i denna Android-app. Ingen verklig AI-inferens har därför testats. Detta är inte ett konstaterande att kontot saknar behörighet. Appen visar HTTP-status, felkod och request-ID när ett riktigt försök blockeras.
+
+Vanliga konkreta hinder:
+
+| Resultat | Betydelse/åtgärd |
+| --- | --- |
+| Identitet giltig men direct-scope saknas | Abonnemangstillstånd saknas. AI avstängd; välj Continue with ChatGPT för uttryckligt nytt samtycke. |
+| `subscription_sharing_user_not_eligible` | Konto/workspace/policy är inte berättigat. Ingen automatisk OAuth- eller anropsloop. |
+| `subscription_sharing_usage_limit_exceeded` | Gå till Manage usage; appgräns kan vara nådd. |
+| 403 med `detail` | Exempelvis region eller policy; appen visar serverns feltext. |
+| `subscription_sharing_unsupported_capability` | Kontrollera request-parametern som servern anger. |
+| 503/direct routing unavailable | Försök senare; credentials bevaras. Prototypen gör inga automatiska omförsök. |
+| OAuth-timeout/bakgrundsprocess dödad | Återgå till appen och börja ett nytt försök. Pending PKCE-material sparas inte vid processdöd. |
+
+Källor:
+
+- [Översikt](https://developers.openai.com/siwc/token-sharing-open-source)
+- [Registrering och inloggning](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)
+- [Konton, förnyelse och återkallelse](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
+- [Modeller och avslutad inferens](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+- [Codex app-server](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server)
+- [Preview-begränsningar](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+- [Felkoder](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)
+- [OIDC-signaturverifiering](https://developers.openai.com/siwc/website)
+- [Namespacade function tools](https://developers.openai.com/api/docs/guides/function-calling)
+
+## Återanvända delar av GameNative
+
+| Befintlig del | Användning i prototypen |
+| --- | --- |
+| `BaseAppScreen` och `GameOptionsPanel` | Ny meny för samtliga spelkällor: **AI assistant · ChatGPT**. |
+| `ContainerUtils.getContainer`, `ContainerManager`, `.container` | Läser samma konfiguration som nästa spelstart använder. Ingen extra konfigurationsdatabas. |
+| `XServerScreen`, `DebugReportUtils` | Läser spelets `debug_run_<appId>.log` eller det senaste kvarvarande komprimerade felsökningsprotokollet med matchande app-ID. |
+| `DiagnosticsLog` | Alternativ spelbunden wrapper-logg. Gemensam `wine_debug.log` används inte eftersom spelets identitet är osäker. |
+| `PerfSampler`, `perf.json` | Numeriska värden ur matchande rapport, de sista 20 samplen inklusive FPS, frametid P50/P99/max när de finns, CPU/GPU/temperatur. |
+| Session metadata | Senaste genomsnittliga FPS och sessionslängd, uttryckligen märkta som historiska värden. |
+| `PerformanceMetricsCollector`/`JsonlSessionLog` | Kartlagda men inte använda som spelbevis: dessa sessionsfiler saknar säker app-ID-bindning i nuvarande format. |
+| `fpsLimiterEnabled`/`fpsLimiterTarget` i `extraData` | Samma FPS-gräns som befintlig snabbmeny/renderer använder. |
+| `ModDiagnosticSanitizer` | Grundfilter för sökvägar, URL-frågor och hemligheter, kompletterat med OAuth-token, lösenord, cookies, JWT, e-post och privata nycklar. |
+| Befintlig AI debug run | Samlar loggar + PerfSampler-data och erbjuder rapport till GameNatives Discord-relay. Den är inte en lokal ChatGPT-provider. Rapporten kan behållas lokalt och läsas av assistenten. |
+
+Konfigurationen som skickas är en allowlist: upplösning, grafik-/översättningskomponenter och relevanta FPS-inställningar. Hela `envVars`, startargument, enhetsserienummer, kontodatabaser och logcat skickas inte. Storleksgränser gäller för rålogg, komprimerad logg, rapport och modellström. Komplett begränsad logg filtreras före avkortning. Användaren ser och kan redigera diagnostiken före sändning. Filtrering kan inte identifiera varje tänkbar hemlighet.
+
+`GameAssistantTools` binder alla läsningar och skrivningar till app-ID:t från Android-skärmen. Ingen modell får välja filvägar. Förslag valideras oberoende av modellen. Tillämpning kräver användarens knapptryck, stoppad spel/container-session och oförändrad konfigurationshash. Backup skrivs atomiskt före konfigurationen; ett misslyckat backup-skrivförsök stoppar ändringen. Bara ett utestående experiment per spel tillåts.
+
+Backup i `noBackupFilesDir/assistant/undo/<appId>.json` innehåller original och förväntat efterläge. Återställning skriver bara berörda fält och bevarar andra ändringar. Om ett berört fält ändrats manuellt till ett tredje värde blockeras återställningen med backup kvar. Den överlever processomstart. Den raderas vid avinstallation/rensning av appdata. Detta är inte en backup av sparfiler, Wine-registret eller spelinstallationen.
+
+## Separat app och paketgranskning
+
+Flaggan `-PaiDev=true` aktiverar funktionen endast i debug-bygget:
+
+- Appnamn: **GameNative AI Dev**.
+- Paket-ID: **`app.gamenative.aidev`**.
+- Version: upstream-version med `-ai-dev`.
+- Kodnamespace förblir `app.gamenative`, så upstream/JNI-namn och klassreferenser behålls.
+- `FileProvider` och AndroidX Startup får unika authorities från applicationId.
+- Launcher-aliasarnas klassnamn fortsätter vara `app.gamenative.MainActivityAlias…`, men deras komponentpaket är utvecklingsappens; namn och label kontrolleras i sammanfogat manifest.
+- Startlänkar använder `gamenative-aidev://run`, start-intent `${applicationId}.LAUNCH_GAME`, egna home-/Nexus-/Discord-/nxm-scheman. Genvägar pekar uttryckligen på rätt paket.
+- Nexus OAuth och Discord-relay-inloggning är avstängda i AI Dev eftersom deras fasta upstream-returadresser/registreringar inte tillhör forken. De kräver egna registreringar innan de kan aktiveras. ChatGPT använder egen officiell dynamisk registrering och loopback, så detta blockerar inte ChatGPT.
+- Steam, GOG, Epic, Amazon, EA och Rockstar-flöden har inte bytts till forkens egna OAuth-klienter; befintliga SDK-/WebView-/interna returer är kvar. Deras verkliga inloggningar måste provas på enhet.
+- Hårdkodade privata sökvägar för DXVK-cache, E:-enhet, gamepad-filer och mediaomvandling är rättade till rätt app-/imagefs-sökväg. `EVSHIM_BASE_PATH` sätts för den medföljande binären som annars har ett fallback till originalpaketet.
+- Originalets automatiska uppdateringskontroll är avstängd i AI Dev.
+
+Den nya appen har separat data och separata spelinstallationer/inställningar. Den läser inte originalappens privata filer. Importera konfiguration med befintliga funktioner om det behövs, och kontrollera importerade absoluta sökvägar. `LICENSE`, `THIRD_PARTY_NOTICES` och befintliga upphovsrättsnotiser är bevarade. Inga native-bibliotek har byggts om; upstreams inkluderade arm64-bibliotek används.
+
+## Bygga
+
+Krav: JDK 17, Android SDK platform 36, build-tools 35.0.0 och internet för Gradle-beroenden. Projektets Gradle Wrapper är 8.12.1; AGP är 8.8.0. Upstream har en varning om compileSdk 36 med denna AGP-version, men baslinjen byggde. SteamGridDB och PostHog-nycklar behövs inte för prototypen. Skapa `local.properties` även om du saknar sådana nycklar, eftersom upstreams secrets-plugin kräver filen:
+
+```properties
+sdk.dir=/absolut/sökväg/till/Android/sdk
+```
+
+Bygg i Android Studio med JDK 17 eller i terminal:
+
+```sh
+./tools/build-ai-dev.sh
+```
+
+Skriptet kör `./gradlew :app:assembleModernDebug -PaiDev=true`. APK:n kopieras till `build/ai-dev/GameNative-AI-Dev.apk`. Installera bara denna utvecklings-APK om originalet ska vara kvar. Behåll din debug-keystore för framtida uppdateringar av samma installation.
+
+Relevanta tester:
+
+```sh
+./gradlew :app:testModernDebugUnitTest -PaiDev=true \
+  --tests 'app.gamenative.assistant.*' \
+  --tests 'app.gamenative.ui.component.FpsLimiterUtilsTest' \
+  --tests 'app.gamenative.ui.component.dialog.ContainerConfigDialogContainerUpdateTest'
+```
+
+I denna session hämtades verktygen lokalt till `/tmp/gamenative-toolchain`. För att återanvända dem medan de finns kvar:
+
+```sh
+export JAVA_HOME=/tmp/gamenative-toolchain/jdk-17.0.20.1+1/Contents/Home
+export ANDROID_HOME=/tmp/gamenative-toolchain/android-sdk
+export GRADLE_USER_HOME=/tmp/gamenative-toolchain/gradle
+./tools/build-ai-dev.sh
+```
+
+`/tmp` är tillfälligt; använd Android Studios SDK/JDK för en beständig utvecklingsmiljö. `local.properties`, APK:er och byggcacher ignoreras av Git. Byggskriptet ändrar inte din globala Java-/SDK-installation.
+
+## Installera och testa på Honor MagicPad
+
+1. För över `GameNative-AI-Dev.apk` till surfplattan och öppna den i filhanteraren. Tillåt installation från den valda appen. Alternativt med USB-felsökning: `adb install -r build/ai-dev/GameNative-AI-Dev.apk`.
+2. Kontrollera att både originalet och **GameNative AI Dev** finns kvar. Starta AI Dev och slutför GameNatives vanliga hämtning/installation av körmiljön.
+3. Logga in i önskad spelbutik eller lägg till ett eget spel. Starta spelet en gång eller skapa dess container via **Edit container**. Ingen del av prototypen antar vilka grafikdrivrutiner/SoC-egenskaper MagicPad har.
+4. Välj **AI debug run**, reproducera ett kort avsnitt och avsluta spelet. Stäng rapportdialogen utan att skicka/radera rapporten. Alternativt **Play with diagnostics** för wrapper-logg. Vanlig spelstart garanterar inte att en spelbunden logg sparas.
+5. Öppna spelets meny → **AI assistant · ChatGPT**. Granska konfiguration, loggdatum, loggutdrag och tillgängliga mätvärden. Avsaknad av logg/prestandarapport visas uttryckligen.
+6. Prova först **Local 30 FPS test proposal (no AI)** → granska → **Back up and apply these changes**. Kontrollera nästa spelstarts FPS-gräns i snabbmenyn. Stäng appen, öppna den igen och välj **Restore previous settings**. Bekräfta att tidigare FPS-inställning återkommit. Prova också att ändra ett annat fält och att det bevaras vid restore.
+7. Välj **Continue with ChatGPT**. Granska OpenAI:s officiella samtycke på surfplattan. Efter returen från webbläsaren väljer du modell och **Verify AI access**. Spara bara felkod/request-ID vid fel, aldrig tokens eller hela OAuth-returadressen.
+8. Ett avslutat textsvar från knappen är beviset på att just den anslutningen/modellen fungerade. Ett konto i listan eller en modellista är inte samma bevis.
+9. Skriv till exempel ”Det här spelet hackar, hjälp mig att få stabila 30 FPS.” Redigera bort känslig diagnostik och tryck **Send reviewed diagnostics and analyze**. Granska förklaring, berörda inställningar och osäkerhet innan du tillämpar.
+10. Prova avböjt samtycke, offline-läge, avbruten inloggning, rotation och appomstart. Prova Sign out och återinloggning i samma anslutning samt en separat workspace-anslutning. Vid nekad abonnemangsåtkomst fungerar det lokala ändrings-/återställningsflödet fortfarande.
+
+Vid återställningskonflikt: backup behålls; sätt det berörda fältet manuellt till experimentets värde eller originalvärdet och försök igen. Återställ inte en godtycklig gammal helkonfiguration över nyare inställningar. Om originalet redan var 30 FPS är ett lokalt 30 FPS-prov en no-op och avvisas utan backup.
+
+För jämförbara mätningar: samma spelversion, sparpunkt/scen, längd, ljusstyrka, skärmuppdateringsfrekvens, energiläge, laddningsstatus och ungefärlig starttemperatur. Kör samma logg-/mätmetod både före och efter och upprepa flera gånger. Jämför FPS och frametider, inte bara en enskild medelsiffra. Loggning kan påverka prestanda. Sänkning av upplösning kan minska GPU-belastning men behöver inte ändra spelets egen upplösning; FPS-cap kan inte skapa saknade bildrutor. Ingen prestandaförbättring på MagicPad är uppmätt i denna session.
+
+## Underhåll
+
+```sh
+git fetch upstream
+git switch magicpad-ai-prototype
+git rebase upstream/master
+./tools/build-ai-dev.sh
+```
+
+Håll integrationen i `app/gamenative/assistant/`. De små övriga ändringarna gäller meny, byggflagga och paketoberoende sökvägar. Ändra inte namespace eller JNI-symboler bara för att applicationId har ett suffix. Upstreams ordinarie build utan `-PaiDev=true` behåller originalidentiteten och visar inte assistenten.
+
+## Faktiskt verifierat i denna session
+
+| Kontroll | Resultat |
+| --- | --- |
+| Oförändrad upstream, `:app:assembleModernDebug` | Godkänd före källkodsändringarna, efter installation av lokal JDK/SDK och skapad `local.properties`. |
+| Slutlig AI Dev APK | Byggd med JDK 17 / SDK 36 / Gradle Wrapper. |
+| Relevanta JVM-/Robolectric-tester | **72 passerade, 0 misslyckade, 0 hoppade över**: 28 assistenttester, 26 befintliga FPS-tester och 18 befintliga containeruppdateringstester. |
+| OAuth | Lokala tester av signerade och förfalskade ID-tokens, issuer/audience/nonce/expiry/azp, loopback-state/path/dubblettparametrar, identitet utan AI-scope och tokenrotation. |
+| Modellprotokoll | Namespacade verktyg, validering av förslag, avbruten ström, sent abonnemangsfel och krav på completed-event testade med syntetiska svar. |
+| Konfiguration/logg | Robolectric testar GameNatives riktiga containerläsare, spelbunden logg, filtrering, tillämpning, återöppning och återställning; ingen logg från annat spel används. |
+| Återställning | Testat: hashkonflikt, manuell ändring i berört fält, andra fält bevaras, saknade fält, simulerat avbrott efter backup, skydd mot överskriven backup samt misslyckad backup utan configändring. |
+| Appidentitet | AAPT och sammanfogat manifest: `app.gamenative.aidev`, `GameNative AI Dev`, arm64-v8a, minSdk 29, targetSdk 36. Robolectric bekräftar aktiverad launcher, separat provider och icke-exporterad assistentaktivitet. |
+| APK-signering | `apksigner verify --verbose`: godkänd APK Signature Scheme v2, en signerare (debug-build). |
+| Licens och diff | `LICENSE` och `THIRD_PARTY_NOTICES` oförändrade; `git diff --check` godkänd. |
+| Ansluten Android-enhet | `adb devices -l`: ingen ansluten. |
+| Verklig OAuth/AI-inferens, Keystore på fysisk enhet, UI-layout, installation bredvid originalet, butikernas inloggningar, native spelkörning och FPS-förbättring | **Inte testat på enhet**. Kräver MagicPad-teststegen ovan. Ingen lyckad kontobehörighet eller prestandavinst påstås. |
+
+APK SHA-256:
+
+```text
+f212fdacff54b6bc8212778296639818a4c9490dee9444cba66c669906bb522c
+```
+
+Lokala bygg-/testloggar och XML-resultat sparas i `build/ai-dev/verification/` (ignoreras av Git). Robolectric gav vid sista körningen även en varning när en temporär katalog skulle städas; testresultaten och Gradle-byggstatus var godkända. Den fulla upstream-testsviten och Android instrumentation-tester på fysisk enhet har inte körts.
+
+## Nästa milstolpe
+
+Först fysisk verifiering av OAuth/Keystore, hela spelstarten och återställningen. Därefter bättre spel- och konfigurationsbindning av mätningar, jämförbara före/efter-rapporter, fler validerade inställningar och eventuellt upprepade optimeringstester. Generaliserad agentloop, godtyckliga filändringar och automatiska testkörningar ingår inte här.

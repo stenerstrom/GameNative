@@ -526,6 +526,7 @@ object NexusAuthManager {
     }
 
     suspend fun beginAuthorization(): Uri = withContext(Dispatchers.IO) {
+        check(!app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) { "Nexus login needs a registered fork-specific callback; unavailable in AI Dev." }
         requireController().beginAuthorization()
     }
 

@@ -42,7 +42,7 @@
         android:extractNativeLibs="true"
         android:icon="${icon}"
         android:isGame="true"
-        android:label="@string/app_name"
+        android:label="${appLabel}"
         android:supportsRtl="true"
         android:largeHeap="true"
         android:theme="@style/Theme.Pluvia"
@@ -69,7 +69,7 @@
 
                 <data
                     android:host="pluvia"
-                    android:scheme="home" />
+                    android:scheme="${homeScheme}" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -78,7 +78,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <!-- Nexus issues signed nxm:// links after a free user authorizes a file on the website. -->
-                <data android:scheme="nxm" />
+                <data android:scheme="${nxmScheme}" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -89,17 +89,17 @@
                 <!-- Relay redirects here after the user links their Discord account. -->
                 <data
                     android:host="discord-linked"
-                    android:scheme="gamenative" />
+                    android:scheme="${launchScheme}" />
             </intent-filter>
             <intent-filter>
-                <action android:name="app.gamenative.LAUNCH_GAME" />
+                <action android:name="${applicationId}.LAUNCH_GAME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="gamenative" android:host="run" />
+                <data android:scheme="${launchScheme}" android:host="run" />
             </intent-filter>
 
             <!--Allows app window to be resized on Oculus Quest VR headsets-->
@@ -129,9 +129,15 @@
                 <data
                     android:host="oauth"
                     android:path="/callback"
-                    android:scheme="app.gamenative" />
+                    android:scheme="${nexusScheme}" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".assistant.GameAssistantActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Pluvia" />
 
         <!-- GOG OAuth (in-app WebView; intercepts redirect for automatic code capture) -->
         <activity
@@ -170,7 +176,7 @@
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -182,7 +188,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_alt"
-            android:label="@string/app_name"
+            android:label="${appLabel}"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

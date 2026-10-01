@@ -4194,7 +4194,8 @@ private fun setupXEnvironment(
         val enableGstreamer = container.isGstreamerWorkaround()
 
         if (enableGstreamer) {
-            for (envVar in Container.MEDIACONV_ENV_VARS) {
+            for (template in Container.MEDIACONV_ENV_VARS) {
+                val envVar = template.replace("/data/data/app.gamenative/files/imagefs", imageFs.rootDir.path)
                 val parts: Array<String?> = envVar.split("=".toRegex(), limit = 2).toTypedArray()
                 if (parts.size == 2) {
                     envVars.put(parts[0], parts[1])

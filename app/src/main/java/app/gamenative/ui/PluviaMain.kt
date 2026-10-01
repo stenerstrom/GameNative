@@ -1434,7 +1434,11 @@ fun PluviaMain(
                 },
             )
 
-            val openDiscordConnect: () -> Unit = {
+            val openDiscordConnect: () -> Unit = connect@{
+                if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                    scope.launch { SnackbarManager.show("Discord linking needs a fork-specific callback. Use the ChatGPT assistant from game options.") }
+                    return@connect
+                }
                 val nonce = ByteArray(16).also { SecureRandom().nextBytes(it) }
                     .joinToString("") { "%02x".format(it) }
                 PrefManager.discordOauthNonce = nonce

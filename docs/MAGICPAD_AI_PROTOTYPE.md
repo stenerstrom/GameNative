@@ -4,6 +4,36 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: reparation av kontrollbryggan
+
+**1.2.1-ai-dev.11**, Android `versionCode=31`, rättar två verifierbara fel efter rapporten att kontroller inte fungerar i något spel.
+
+### Orsak och ändring
+
+Paketbytet i den första AI Dev-versionen satte `EVSHIM_BASE_PATH` i Wine-processens miljö, men inte i Android-processens miljö. `libevshim.so` läser variabeln i sin native-konstruktor när `WinHandler` laddar biblioteket. Utan värdet används `/data/data/app.gamenative/files`, som hör till originalappen. Java skriver samtidigt till AI Devs `filesDir/gamepad_shm`. Native-väckningen kan då sakna sin mappning, och sekvensräknaren i rätt fil uppdateras aldrig. Wine-sidans `vjoy_updater` väntar på just den sekvensräknaren. Detta kan bryta både fysisk och virtuell gamepad-input även om kontrolltestet registrerar Android-händelser och Java-skrivningar. Den medföljande binären innehåller samma miljövariabel, fallback och JNI-felmeddelande som källkoden.
+
+`PluviaApp.attachBaseContext` konfigurerar nu värdprocessens sökväg före content providers, DI och `onCreate`. Wine får samma sökväg efter att övriga miljöinställningar slagits ihop. Ingen ny native-binär krävs. Felet är äldre än kontrolltestet; att det är den enda orsaken till användarens enhetsproblem är inte verifierat utan enhetstest.
+
+Återanslutningens `finally` slog tidigare upp spelvyn igen och kunde hoppa över städningen när vyn inte längre fanns. Nu städas den fångade bryggan alltid. Dess inputspärr släpps även om vyn försvinner, men filskrivning/ny anslutningsstatus sker bara om exakt samma `WinHandler` fortfarande är aktiv. Spelstart och spelstopp återställer också spärren.
+
+Vid spelstart verifierar `WinHandler` att JNI-väckning ändrar sekvensräknaren i varje Java-mappad kontrollfil. `inspect_controllers.runtimeBridge.buffers[].nativeWakeReady` är `null` före kontroll, `false` när kontrollen misslyckats och `true` när samma buffert reagerar. Det är fortfarande inget kvitto från PC-spelet. Vibrationspollaren startas inte för en trasig native-mappning: native-funktionen returnerar omedelbart i det fallet och kunde annars orsaka en tät CPU-loop. Ingen CPU-förbättring har mätts på enheten.
+
+### Installation och enhetstest
+
+1. Avsluta spelet. Uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.11-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-31/GameNative-AI-Dev-1.2.1-ai-dev.11.apk) ovanpå AI Dev. Samma paket och signerare används. Avinstallera inte och rensa inte appdata.
+2. Öppna appen på nytt. Native-bibliotekets sökväg läses vid processstart, så en redan laddad bibliotekskopia kan inte rättas genom att enbart stänga chattpanelen.
+3. Starta ett spel med dess befintliga inställningar. Testa först fysisk handkontroll och skärmens gamepad-knappar utan nytt liveförsök eller API-byte.
+4. Om input fortfarande saknas, öppna **Kontrolltest**, starta 20-sekunderstestet och prova i spelet. Be därefter assistenten läsa både kontrolltestet och `nativeWakeReady`. Rapportera vilka steg som får signaler och om spelet reagerar. Ingen debug run behövs.
+5. Prova att öppna/stänga chatten och kontrolltestet, avbryta återanslutning och starta nästa spel. Input ska inte förbli spärrad efter dessa åtgärder. Sparade spelinställningar, kontrollprofiler och befintliga säkerhetskopior ska vara orörda.
+
+### Verifiering
+
+Regressionstesterna för appstart och försvunnen/bytt spelvy fallerade före rättningen. Appstartstestet kör verklig `Application.attach` och `PluviaApp.attachBaseContext`, med Androids libc-miljöanrop ersatta av en testsimulering eftersom Robolectric inte implementerar dem. Bryggtesterna kör verklig Java-minnesmappning, API-svar och kontrollmappning; JNI-väckningen ersätts med en testgräns. De skiljer en lyckad Java-skrivning från utebliven native-sekvensändring, kontrollerar att trasiga mappningar inte startar vibrationspollare och att en gammal återanslutning inte ändrar en ny spelomgångs buffert. UI-testerna kör liveförsök, ångra och återanslutning med befintlig säkerhetskopia.
+
+**223 tester godkända, inga fel eller överhoppade tester**, och `assembleModernDebug` lyckades. Paket-ID, versionskod och tidigare signerare är kontrollerade; alla 32 paketerade native-bibliotek är byteidentiska med ai-dev.10. APK SHA-256: `5eb9afa9c7e8d00a0cd2f41c7d2a2c6d964b3dad6b661edad4f38ac31a51d6ff`.
+
+Verifieringsfiler: `build/ai-dev/verification/controller-recovery/`, inklusive felande tester före rättningen. Verklig Bluetooth/USB, JNI, SDL/Wine och PC-spelens respons kräver MagicPad. Ingen fysisk Android-enhet var ansluten. Ingen fungerande kontrollrespons på enheten påstås utifrån JVM-testerna.
+
 ## Uppdatering 2026-10-02: kontrollförsök utan omstart
 
 **1.2.1-ai-dev.10**, Android `versionCode=30`, ersätter den generella spärren med separata liveförsök för kontrollbryggan. Den tidigare sparade konfigurationens säkerhetskopia kan finnas kvar samtidigt. Permanent konfigurations-, fil- och modskrivning kräver fortfarande stoppat spel.

@@ -43,6 +43,7 @@ class LiveControllerUiTest {
     @After fun cleanup() {
         InGameAssistantUi.close(game); ControllerTestUi.clear(game)
         LiveGameSession.end(); SteamService.keepAlive = false; PluviaApp.xServerView = null
+        WinHandler::class.java.getDeclaredField("activeInstance").apply { isAccessible = true; set(null, null) }
     }
     @Test fun landscapeTrialAndUndoPreserveExistingDurableBackup() = exercise("landscape")
     @Test @Config(qualifiers = "w600dp-h960dp-port")
@@ -73,6 +74,7 @@ class LiveControllerUiTest {
         whenever(server.winHandler).thenReturn(bridge)
         WinHandler::class.java.getDeclaredField("assistantSessionToken").apply { isAccessible = true; set(bridge, token) }
         WinHandler::class.java.getDeclaredField("running").apply { isAccessible = true; setBoolean(bridge, true) }
+        WinHandler::class.java.getDeclaredField("activeInstance").apply { isAccessible = true; set(null, bridge) }
         bridge.setPreferredInputApi(WinHandler.PreferredInputApi.XINPUT)
         PluviaApp.xServerView = renderer
         var requests = 0

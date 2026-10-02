@@ -1,12 +1,12 @@
-GameNative AI Dev 1.2.1-ai-dev.10 – prova kontrollbryggan utan omstart
+GameNative AI Dev 1.2.1-ai-dev.11 – reparation av kontrollbryggan
 
-• Under spel kan ett förslag med enbart kontroll-API och/eller DirectInput-mappare nu visas med Prova bryggan live. Försöket ändrar den aktiva bryggan för nästa äldre kontrollförfrågan. Ångra liveförsök återställer direkt. Ingen konfigurationsfil sparas; försöket upphör när spelomgången slutar.
-• Befintlig sparad ändring och dess säkerhetskopia hindrar inte ett separat liveförsök. Permanent Tillämpa/Ångra, filändringar och modändringar kräver fortfarande stoppat spel.
-• Quick Menu → Codex i spelet → Kontrolltest → Återanslut kontrollbryggan begär en kort virtuell frånkoppling/återanslutning medan spelet fortsätter. Ingen AI-fråga behövs för knappen. Gör ett nytt kontrolltest och kontrollera om spelet faktiskt reagerar.
-• Rättar API-val i den äldre kontrollbryggans GET_GAMEPAD-svar: XINPUT tillåter XInput, DINPUT tillåter DirectInput, BOTH tillåter båda och AUTO undviker dubbel exponering efter en XInput-förfrågan från samma process. Tidigare kunde de namngivna lägena ge fel svar.
+• Rättar ett fel från paketbytet till app.gamenative.aidev: EVSHIM_BASE_PATH sätts nu även i Android-processen innan libevshim laddas. Tidigare var bara Wine-processen konfigurerad, medan Androids native-brygga försökte använda originalappens privata filer. Knappdata kunde skrivas utan att spelet fick väcksignalen. Detta berör både fysisk kontroll och virtuella gamepad-knappar.
+• Återanslutningen släpper alltid sin tillfälliga inputspärr på den ursprungliga bryggan, även om spelvyn försvinner. En gammal återanslutning får inte skriva över en ny spelomgångs kontrollbuffert.
+• Vid spelstart verifieras nu att native-väckningen ändrar sekvensräknaren i samma minnesfil som Android skriver. Assistenten får resultat per spelarplats. En lyckad buffertskrivning ensam räknas inte som fungerande signalöverföring.
+• Om native-mappningen saknas startas inga vibrationspollare som annars kunde gå i en tät CPU-loop.
 
-Gränsen för liveförsöket är viktig: det ändrar inte SDL_XINPUT_ENABLED/SDL_DIRECTINPUT_ENABLED i ett redan startat spel, Steam Inputs startkonfiguration, laddade drivrutiner eller kontrollobjekt som spelet håller kvar. Sådana ändringar kan fortfarande kräva omstart. Återanslutning är en begäran, inte ett kvitto från PC-spelet. Dark Souls på MagicPad är inte verifierat reparerat.
+Spelinställningar, kontrollprofiler, moddar och säkerhetskopior skrivs inte om av uppdateringen. Den tidigare XInput/DirectInput-rättningen och liveförsöken finns kvar.
 
-Stäng spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Avinstallera inte. Samma paket och signerare; versionskod 30.
+Avsluta spelet, uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev och öppna appen på nytt. Avinstallera inte och rensa inte appdata. Samma paket och signerare; versionskod 31. Appen måste startas på nytt eftersom native-biblioteket läser sökvägen när det laddas.
 
-JVM-/Robolectric-tester verifierar faktiska protokollsvar, ändrade API-val utan omstart, delad minnesbufferts anslutningsflagga, stoppad inmatning under återanslutning, återställning vid avbruten åtgärd, skydd mot annan spelomgång och manuella samtidiga ändringar samt UI-flödet med orörd befintlig säkerhetskopia i liggande/stående läge. JNI-väckning, fysisk kontroll och Wine-gästen är inte testade på MagicPad. Modellsvaren i UI-testerna är simulerade.
+223 tester godkända och APK-byggning lyckad. Regressionstester återskapar fel sökväg vid appstart och kvarhängande återanslutningsspärr. Androids libc-miljöanrop och JNI ersätts i JVM-testerna; verklig JNI/Wine-signalöverföring och kontrollrespons på MagicPad återstår att verifiera. Ingen fysisk Android-enhet var ansluten vid bygget.

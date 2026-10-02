@@ -84,6 +84,7 @@ class ControllerLiveTransactionsTest {
     }
 
     @Test fun reconnectCleanupCannotActOnNewLaunchAndExitClearsUndo() = runBlocking {
+        val oldPort = port!!
         trials.apply(preview(ControllerInputApi.XINPUT))
         trials.reconnect("STEAM_42") {
             port = Port("next-launch")
@@ -91,8 +92,16 @@ class ControllerLiveTransactionsTest {
         }
         assertEquals(0, port!!.reconnects)
         assertFalse(port!!.disconnected)
+        assertFalse("The old bridge must also release its temporary input gate", oldPort.disconnected)
         assertNull(trials.undo.value)
         trials.reconnect("STEAM_42") { }
         assertEquals(1, port!!.reconnects)
+    }
+
+    @Test fun reconnectCleanupReleasesOriginalBridgeWhenUiConnectionDisappears() = runBlocking {
+        val original = port!!
+        trials.reconnect("STEAM_42") { port = null }
+        assertFalse("A missing UI connection must not leave input permanently disabled", original.disconnected)
+        assertEquals(1, original.reconnects)
     }
 }

@@ -36,8 +36,9 @@ import org.robolectric.annotation.Implements
 class ShadowControllerWinHandlerNative {
     companion object {
         var notifications = 0
+        var wake: ((Int) -> Unit)? = null
         @JvmStatic @Implementation fun __staticInitializer__() = Unit
-        @JvmStatic @Implementation fun notifyStateChanged(playerIndex: Int) { notifications++ }
+        @JvmStatic @Implementation fun notifyStateChanged(playerIndex: Int) { notifications++; wake?.invoke(playerIndex) }
     }
 }
 
@@ -46,7 +47,16 @@ class ShadowControllerWinHandlerNative {
     instrumentedPackages = ["com.winlator.winhandler"])
 class ControllerBridgeTest {
     @get:Rule val folder = TemporaryFolder()
-    @After fun cleanup() { LiveGameSession.end(); ControllerInputTrace.buffer.reset() }
+    @After fun cleanup() {
+        LiveGameSession.end(); ControllerInputTrace.buffer.reset()
+        ShadowControllerWinHandlerNative.wake = null
+        WinHandler::class.java.getDeclaredField("activeInstance").apply { isAccessible = true; set(null, null) }
+    }
+
+    private fun active(bridge: WinHandler) {
+        WinHandler::class.java.getDeclaredField("running").apply { isAccessible = true; setBoolean(bridge, true) }
+        WinHandler::class.java.getDeclaredField("activeInstance").apply { isAccessible = true; set(null, bridge) }
+    }
 
     private fun bridge(): WinHandler {
         val app = ApplicationProvider.getApplicationContext<Application>()
@@ -96,6 +106,7 @@ class ControllerBridgeTest {
 
     @Test fun reconnectDisconnectsSharedMemoryBlocksWritesAndReturnsNeutralConnectedState() {
         val bridge = bridge()
+        active(bridge)
         val profile = mock<ControlsProfile>().also { whenever(it.isVirtualGamepad).thenReturn(true) }
         val view = mock<InputControlsView>().also {
             whenever(it.profile).thenReturn(profile)
@@ -118,6 +129,51 @@ class ControllerBridgeTest {
             assertEquals(1, memory.getInt(40))
             assertEquals(0, memory.get(16).toInt())
             assertFalse(bridge.assistantControllerStatus.getBoolean("reconnecting"))
+        }
+    }
+
+    @Test fun missingNativeMappingIsDetectedEvenWhenJavaWritesSucceedAndDoesNotStartBusyPollers() {
+        val bridge = bridge()
+        RandomAccessFile(folder.newFile(), "rw").use { file ->
+            file.setLength(64)
+            val memory = file.channel.map(FileChannel.MapMode.READ_WRITE, 0, 64).apply { order(ByteOrder.LITTLE_ENDIAN) }
+            WinHandler::class.java.getDeclaredField("gamepadBuffer").apply { isAccessible = true; set(bridge, memory) }
+            assertTrue(bridge.assistantControllerStatus.getJSONArray("buffers").getJSONObject(0).isNull("nativeWakeReady"))
+            bridge.sendVirtualGamepadState(GamepadState().apply { setPressed(0, true) })
+            assertEquals(1, memory.get(16).toInt())
+            WinHandler::class.java.getDeclaredMethod("checkNativeGamepadWake").apply { isAccessible = true; invoke(bridge) }
+            val slot = bridge.assistantControllerStatus.getJSONArray("buffers").getJSONObject(0)
+            assertTrue(slot.getBoolean("bufferReady"))
+            assertFalse(slot.getBoolean("nativeWakeReady")) // JNI returned without changing this mapping.
+            WinHandler::class.java.getDeclaredMethod("startRumblePoller").apply { isAccessible = true; invoke(bridge) }
+            val threads = WinHandler::class.java.getDeclaredField("rumblePollerThreads").apply { isAccessible = true }.get(bridge) as Array<*>
+            assertTrue(threads.all { it == null })
+
+            // The health check requires an actual sequence change in this exact mapped file.
+            ShadowControllerWinHandlerNative.wake = { if (it == 0) memory.putInt(0, memory.getInt(0) + 1) }
+            WinHandler::class.java.getDeclaredMethod("checkNativeGamepadWake").apply { isAccessible = true; invoke(bridge) }
+            assertTrue(bridge.assistantControllerStatus.getJSONArray("buffers").getJSONObject(0).getBoolean("nativeWakeReady"))
+            assertFalse(bridge.assistantControllerStatus.getJSONArray("buffers").getJSONObject(1).getBoolean("nativeWakeReady"))
+        }
+    }
+
+    @Test fun finishingOldReconnectReleasesGateWithoutOverwritingNewHandlersSharedFile() {
+        val old = bridge()
+        active(old)
+        RandomAccessFile(folder.newFile(), "rw").use { file ->
+            file.setLength(64)
+            val memory = file.channel.map(FileChannel.MapMode.READ_WRITE, 0, 64).apply { order(ByteOrder.LITTLE_ENDIAN) }
+            WinHandler::class.java.getDeclaredField("gamepadBuffer").apply { isAccessible = true; set(old, memory) }
+            old.beginAssistantControllerReconnect()
+            assertTrue(old.assistantControllerStatus.getBoolean("reconnecting"))
+            val next = bridge()
+            active(next)
+            WinHandler::class.java.getDeclaredField("gamepadBuffer").apply { isAccessible = true; set(next, memory) }
+            next.sendVirtualGamepadState(GamepadState().apply { setPressed(0, true) })
+            old.finishAssistantControllerReconnect()
+            assertFalse(old.assistantControllerStatus.getBoolean("reconnecting"))
+            assertEquals(1, memory.getInt(40))
+            assertEquals(1, memory.get(16).toInt())
         }
     }
 

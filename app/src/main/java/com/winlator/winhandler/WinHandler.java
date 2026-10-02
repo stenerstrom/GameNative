@@ -72,6 +72,8 @@ public class WinHandler {
     private volatile PreferredInputApi preferredInputApi;
     private volatile boolean assistantReconnecting;
     private volatile int gamepadDiscoveryCount;
+    private volatile boolean nativeWakeChecked;
+    private final boolean[] nativeWakeReady = new boolean[MAX_PLAYERS];
     private final ByteBuffer receiveData;
     private final DatagramPacket receivePacket;
     private volatile boolean running;
@@ -113,6 +115,7 @@ public class WinHandler {
             for (int slot = 0; slot < MAX_PLAYERS; slot++) {
                 buffers.put(new org.json.JSONObject().put("player", slot + 1)
                         .put("bufferReady", getGamepadBuffer(slot) != null)
+                        .put("nativeWakeReady", nativeWakeChecked ? nativeWakeReady[slot] : org.json.JSONObject.NULL)
                         .put("slotEnabled", controllerManager.isSlotEnabled(slot)));
             }
             data.put("handlerRunning", running).put("guestInitReceived", initReceived)
@@ -122,7 +125,7 @@ public class WinHandler {
                     .put("legacyDiscoveryCount", gamepadDiscoveryCount).put("reconnecting", assistantReconnecting)
                     .put("liveApiScope", "API/mapper setters affect subsequent legacy GET_GAMEPAD discovery requests only. They do not change the SDL environment or a game's cached controller objects. A bridge reconnect is a request, not a guest acknowledgement.")
                     .put("buffers", buffers)
-                    .put("note", "Runtime WinHandler state, not just saved settings. Zero legacy clients is NOT proof of failure: SDL/evshim can use shared memory. Buffer readiness or a write does not prove game-side consumption.");
+                    .put("note", "Runtime WinHandler state, not just saved settings. nativeWakeReady tests whether JNI advances the sequence word in the same buffer Java writes; false is a broken app-side bridge, null means not checked. True still does not prove guest consumption. Zero legacy clients is NOT proof of failure: SDL/evshim can use shared memory.");
         } catch (org.json.JSONException ignored) { }
         return data;
     }
@@ -549,6 +552,7 @@ public class WinHandler {
 
     public void stop() {
         this.running = false;
+        this.assistantReconnecting = false;
         if (activeInstance == this) activeInstance = null;
         for (int slot = 0; slot < MAX_PLAYERS; slot++) {
             rumbleTeardown(slot);
@@ -743,6 +747,7 @@ public class WinHandler {
     }
 
     public void start() {
+        assistantReconnecting = false;
         assistantSessionToken = app.gamenative.assistant.LiveGameSession.token();
         try {
             this.localhost = InetAddress.getLocalHost();
@@ -780,6 +785,7 @@ public class WinHandler {
             } catch (UnknownHostException e2) {
             }
         }
+        checkNativeGamepadWake();
         refreshControllerMappings();
         this.running = true;
         activeInstance = this;
@@ -805,11 +811,33 @@ public class WinHandler {
         startRumbleKeepalive();
     }
 
+    /** A mapped Java buffer alone is not proof that libevshim mapped the same file. */
+    private void checkNativeGamepadWake() {
+        nativeWakeChecked = false;
+        for (int slot = 0; slot < MAX_PLAYERS; slot++) {
+            MappedByteBuffer buffer = getGamepadBuffer(slot);
+            nativeWakeReady[slot] = false;
+            if (buffer != null) {
+                int before = buffer.getInt(0); // evshim's shared futex sequence word
+                notifyStateChanged(slot);
+                nativeWakeReady[slot] = buffer.getInt(0) != before;
+            }
+            if (!nativeWakeReady[slot]) {
+                Log.e(TAG, "Native controller wake failed for player " + (slot + 1)
+                        + "; check the host/guest EVSHIM_BASE_PATH before changing game settings");
+            }
+        }
+        nativeWakeChecked = true;
+    }
+
     private void startRumblePoller() {
         if (rumblePollerThreads == null || rumblePollerThreads.length != MAX_PLAYERS) {
             rumblePollerThreads = new Thread[MAX_PLAYERS];
         }
         for (int slot = 0; slot < MAX_PLAYERS; slot++) {
+           // JNI returns immediately when its mapping is missing. Starting that poller
+           // would busy-spin for the whole session and consume a CPU core per slot.
+           if (nativeWakeChecked && !nativeWakeReady[slot]) continue;
            final int sl = slot;
             Thread thread = new Thread(() -> {
                 int curSeq = 0;
@@ -1209,7 +1237,9 @@ public class WinHandler {
 
     public void finishAssistantControllerReconnect() {
         assistantReconnecting = false;
-        refreshControllerMappingsForHotplug();
+        // The UI may disappear while reconnect is suspended. Release this instance's
+        // gate regardless, but never write shared files now owned by a newer handler.
+        if (running && activeInstance == this) refreshControllerMappingsForHotplug();
     }
 
     public ExternalController getCurrentController() {

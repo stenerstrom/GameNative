@@ -1,8 +1,10 @@
 package app.gamenative
 
+import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.StrictMode
+import android.system.Os
 import android.util.DisplayMetrics
 import android.view.Display
 import androidx.compose.runtime.getValue
@@ -57,6 +59,15 @@ class PluviaApp : SplitCompatApplication() {
     @Inject lateinit var amazonGameDao: AmazonGameDao
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun attachBaseContext(base: Context) {
+        // libevshim maps its files in a native constructor, as soon as WinHandler is loaded.
+        // The guest's launch environment does not configure this Android process. Set the
+        // host path before providers, DI or onCreate can load the library; its compiled
+        // fallback points at the upstream package and breaks input in side-by-side builds.
+        Os.setenv("EVSHIM_BASE_PATH", base.filesDir.absolutePath, true)
+        super.attachBaseContext(base)
+    }
 
     override fun onCreate() {
         super.onCreate()

@@ -56,6 +56,9 @@ object GameAssistantAgent {
                 No events alone is inconclusive (the user may not have pressed anything or Android may intercept it). Zero legacy
                 gamepad clients is not a fault by itself: SDL/evshim can use shared memory. A buffer write is NOT proof the game reads
                 input. State what evidence stops at, and ask whether the PC game reacted. Never promise a game-side fix from trace alone.
+                runtimeBridge.buffers[].nativeWakeReady checks whether the native bridge wakes the same memory that Android writes.
+                False is an app-side bridge fault, not a reason to guess at XInput/Steam Input settings; recommend updating and fully
+                restarting the app. Null means untested, true still does not prove the PC game consumes input.
                 inspect_controllers.liveControllerTrial describes current runtime-only trials and undo. The live API/mapper
                 setters affect subsequent legacy GET_GAMEPAD discovery requests ONLY; they do not change the SDL startup
                 environment or already-open game controller objects. legacyDiscoveryCount can show whether that path is being

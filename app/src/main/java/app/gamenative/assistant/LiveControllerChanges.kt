@@ -77,10 +77,11 @@ class ControllerLiveTransactions(private val connection: (String) -> Port?) {
             port.disconnect()
             pause()
         } finally {
-            // Always lift the temporary gate, including cancellation; never touch a new launch.
+            // Clean up the captured bridge even when the UI lookup disappears. The port
+            // releases its gate unconditionally but only refreshes its own active handler.
             try {
                 withContext(NonCancellable) {
-                    connection(game)?.takeIf { it.token == port.token }?.reconnect()
+                    port.reconnect()
                 }
             } finally { if (reconnecting == port.token) reconnecting = null }
         }

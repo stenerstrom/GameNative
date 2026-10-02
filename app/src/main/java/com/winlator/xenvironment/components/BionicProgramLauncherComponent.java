@@ -250,7 +250,6 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
 
         // Use the ControllerManager's dynamic count for the environment variable
         envVars.put("EVSHIM_MAX_PLAYERS", String.valueOf(MAX_PLAYERS));
-        envVars.put("EVSHIM_BASE_PATH", context.getFilesDir().getPath());
         if (true) {
             envVars.put("EVSHIM_SHM_ID", 1);
         }
@@ -438,6 +437,9 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
             FileUtils.chmod(box64File, 0755);
         }
 
+        // Match the Android host (PluviaApp.attachBaseContext), after all preset/container
+        // overrides. Both sides must map the same file, including its futex sequence word.
+        envVars.put("EVSHIM_BASE_PATH", context.getFilesDir().getAbsolutePath());
         return ProcessHelper.exec(command, envVars.toStringArray(), workingDir != null ? workingDir : rootDir, (status) -> {
             synchronized (lock) {
                 pid = -1;

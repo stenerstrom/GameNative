@@ -24,6 +24,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
     var preparedChanges: List<String> = emptyList()
         private set
     private var inspectedHash: String? = null
+    override var screenshot: GameScreenshot? = null
     override var fileAccess: Boolean = false
     override var modAccess: Boolean = false
     override val offlineAccess: Boolean get() = appId.matches(Regex("CUSTOM_GAME_[1-9][0-9]*"))
@@ -34,11 +35,23 @@ class GameAssistantTools(private val context: Context, private val appId: String
             File(app.gamenative.mods.ModContainerResolver.getWinePrefix(context, appId), "drive_c")))
     }, { ContainerUtils.getContainer(context, appId).configFile },
         File(context.noBackupFilesDir, "assistant/offline-launch-undo/$appId.json"), { !SteamService.keepAlive && LiveGameSession.token() == null })
+    val care = GameCare(context, appId)
+    override val careAccess = true
+    override suspend fun prepareCare(name: String, args: JSONObject) = care.prepare(name, args, modAccess)
+    suspend fun preflight(): JSONObject = withContext(Dispatchers.IO) {
+        val hasConfig = ContainerUtils.hasContainer(context, appId)
+        val config = if (hasConfig) JSONObject(ContainerUtils.getContainer(context, appId).configFile.readText()) else JSONObject()
+        val root = GameFileRoots.discover(context, appId).firstOrNull { it.id == "game" }?.directory
+        val prefix = File(app.gamenative.mods.ModContainerResolver.getWinePrefix(context, appId))
+        val log = LiveGameSession.view(appId)?.lines?.joinToString("\n") { it.text }
+            ?: if (hasConfig) JSONObject(readDiagnostics().text).optString("log") else ""
+        GamePreflight.inspect(config, root, prefix, log).json()
+    }
     private val mods = GameModTools(context, appId, gameTitle)
     private val textFiles = GameTextFiles({ GameFileRoots.discover(context, appId) },
         File(context.noBackupFilesDir, "assistant/file-undo/$appId.json"))
 
-    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn(); mods.beginTurn(); offline.beginTurn() }
+    fun beginTurn() { care.beginTurn(); inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn(); mods.beginTurn(); offline.beginTurn() }
     override suspend fun inspectOffline(): String = withContext(Dispatchers.IO) {
         check(offlineAccess); offline.inspect()
     }
@@ -75,8 +88,8 @@ class GameAssistantTools(private val context: Context, private val appId: String
         mods.apply(loaderApproved) { check(!backupFile.isFile && !textFiles.hasBackup()) { "Restore/keep the previous settings/file change first" } }
     }
     fun hasModBackup() = mods.hasBackup()
-    suspend fun restoreAll() { checkSingleBackup(); if (hasModBackup()) mods.restore() else restore() }
-    suspend fun keepAll() { checkSingleBackup(); if (hasModBackup()) mods.keep() else keepChanges() }
+    suspend fun restoreAll() { checkSingleBackup(); if (care.hasUndo()) care.restore() else if (hasModBackup()) mods.restore() else restore() }
+    suspend fun keepAll() { checkSingleBackup(); if (care.hasUndo()) care.keep() else if (hasModBackup()) mods.keep() else keepChanges() }
     override suspend fun readFileTool(name: String, arguments: JSONObject): String = withContext(Dispatchers.IO) {
         check(fileAccess) { "File access is disabled" }
         val key = when (name) { "list_game_files" -> "query"; "read_game_file" -> "file_id"; else -> error("Unsupported file tool") }
@@ -89,6 +102,14 @@ class GameAssistantTools(private val context: Context, private val appId: String
         textFiles.prepare(proposal)
     }
     override suspend fun read(name: String): String {
+        if (name == "read_game_profiles") return care.inventory(modAccess).toString()
+        if (name == "read_control_profiles") return care.readControls().toString()
+        if (name == "read_preflight") return preflight().apply { if (modAccess) put("mods", care.modReport()) }.toString()
+        if (name == "read_stutter_context") {
+            val context = JSONObject(read("read_optimization_context"))
+            val goal = context.getJSONObject("optimization").optInt("targetFps", 30)
+            return context.put("stutterAnalysis", StutterDiagnosis.analyze(context.getJSONObject("liveSession"), goal)).toString()
+        }
         if (name == "read_optimization_context") {
             val launch = LiveGameSession.view(appId)?.token
             val configuration = JSONObject(read("read_configuration"))
@@ -241,7 +262,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
     }
 
     private val backupFile: File get() = File(context.noBackupFilesDir, "assistant/undo/$appId.json")
-    override fun hasBackup(): Boolean = backupFile.isFile || textFiles.hasBackup() || mods.hasBackup()
+    override fun hasBackup(): Boolean = backupFile.isFile || textFiles.hasBackup() || mods.hasBackup() || care.hasUndo()
     fun hasFileBackup(): Boolean = textFiles.hasBackup()
     fun keepChanges() = synchronized(changeLock) {
         checkStopped(); checkSingleBackup()
@@ -265,7 +286,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         if (hasFileBackup()) textFiles.restore() else transaction().restore()
     }
     private fun checkSingleBackup() {
-        check(listOf(backupFile.isFile, textFiles.hasBackup(), mods.hasBackup()).count { it } <= 1) { "Conflicting undo records; backups are retained" }
+        check(listOf(backupFile.isFile, textFiles.hasBackup(), mods.hasBackup(), care.hasUndo()).count { it } <= 1) { "Conflicting undo records; backups are retained" }
     }
     private fun checkStopped() {
         check(!SteamService.keepAlive) { "Stop the game/container before changing or restoring settings/files" }

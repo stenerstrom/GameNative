@@ -4,6 +4,60 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: spelverktyg, profiler och bilder
+
+**1.2.1-ai-dev.15**, Android `versionCode=35`, samlar funktionerna under **Spelverktyg** i chatten. Installera över befintlig AI Dev via **⋮ → Appuppdateringar** eller [uppdaterings-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-35/GameNative-AI-Dev-1.2.1-ai-dev.15.apk). Paketet `app.gamenative.aidev` och signeringsnyckeln är desamma. Avinstallera inte och rensa inte appdata.
+
+| Funktion | Så använder du den | Omfattning |
+| --- | --- | --- |
+| Namngivna återställningsprofiler | Spelverktyg → Återställningsprofiler → namnge → Granska och spara | Sparade grafik-/runtimeval, kontrollmappning och spårade modval. Återställning visar ändringar och skapar en separat, beständig **Ångra profil**. |
+| Kontroll före start | Spelverktyg → Kontroll före start; körs även från bibliotekets vanliga Spela-knapp | Start-EXE, felaktig FPS-begränsare, loggens saknade DLL:er, luckor i numrerade BIN-filer, ledigt utrymme och spårade modfiler. Varningar kan granskas eller passeras med Starta ändå. |
+| Spelbilder till Codex | Quick Menu → Codex i spelet → **Bifoga spelbild** | En bild av spelets renderingsyta. Tryck på miniatyren för större förhandsvisning. Skickas först tillsammans med nästa meddelande; kan tas bort före sändning. |
+| ZIP/7z och komponenthjälp | Bibliotek → + → Installera offlinespel med Codex → **Välj ZIP eller 7z** | Separat kopia, säker uppackning, EXE/BIN-struktur bevarad. Fortsätt förbereder spelets Wine-miljö före chatten. Codex kan föreslå medföljande VC++/DirectX-EXE via befintlig installerarfunktion. |
+| Analys av hackande | Spelverktyg → **Be Codex undersöka hackandet** | Samlar aktuella inställningar, sparat FPS-mål, jämförbara mätningar, senaste bildtider och tillgängliga sensorer. Skiljer observationer från hypoteser. |
+| Kontrollprofiler och knappbyte | Spelverktyg → Kontroller, eller skriv exempelvis “Byt A till B för detta spel” | Kopierar en biblioteksprofil eller ändrar en knapp i en egen profil för valt spel. Sticks och Home/MODE bevaras vid enstaka knappbyte. Signalväg och spelarplats kan undersökas med befintliga liveverktyg. |
+| Modprofiler och filkonflikter | Spelverktyg → Modprofiler → välj paket/ordning och spara | Exempelvis Original, Grafik och Gameplay. Senast valda mod får högst filprioritet. Visar överlappande filer och aktiv vinnare. Byt profil med förhandsgranskning, uttryckligt modgodkännande och ångra. |
+
+### Återställning och avgränsning
+
+Profiler är användarsparade lägen, inte automatiskt verifierade kompatibilitetsrecept. Spara ett läge först när du själv har provat spelet. Högst 20 profiler per spel. Profilinnehåll lagras lokalt i appens privata, icke säkerhetskopierade lagring; modellen får bara namnen, omfattningen och konkreta granskningsändringar. Miljövariabler, kontouppgifter, kommandoradsargument och enhetsmappningar kopieras inte till profilerna.
+
+Återställningsprofiler kopierar **inte** spelinstallation, sparfiler, Windows-registret, godtyckliga INI-filer eller installerade runtimepaket. De återställer sparade val; avinstallerade Wine-/drivrutinspaket måste fortfarande finnas tillgängliga. Tidigare filredigering har kvar sin separata ångrafunktion. Ett pågående inställnings-, fil- eller modförsök måste behållas eller ångras före ett profilbyte. Ändrade berörda värden, modfiler, paketkällor eller saknade säkerhetskopior blockerar överskrivning och behåller återställningspunkten. En ofullständig native-modinstallation kan först behöva återställas i Modbibliotek och Nexus.
+
+Modprofiler använder GameNatives granskade filplaceringar, ägarskap, hashkontroller och installationsjournaler. Första installationen av ett nytt modpaket granskas i befintlig modhantering. Denna profilväxling stöder granskade `OVERWRITE_COPY`-filer i spelmappen; särskilda mål, symlänkar och Bethesda-pluginladdordning hanteras i **Modbibliotek och Nexus**. Överlappande filer visar en möjlig konflikt, inte semantisk inkompatibilitet. När filordningen byggs om bevaras tidigare lagerbackuper med innehållshash under spelets privata modcache innan native-verktyget skapar nya korrekta lagerbackuper. Dessa återställningskopior tar lagringsutrymme och raderas inte av “Behåll profil”.
+
+Spara, ändra och återställa profiler kräver avslutat spel. Det tidigare **Prova bryggan live / Ångra liveförsök** gäller fortsatt för stödda kontrollbryggeval. Global spelarplacering och Bluetooth-parkoppling ändras inte av profilverktygen. Läsverktygen injicerar inga kontrollsignaler. Ingen JNI-, SDL- eller inputbryggkod har ändrats i denna uppdatering.
+
+### Bilder, installation och mätningar
+
+Bilden tas med Android PixelCopy från spelets `SurfaceView`, aldrig hela appfönstret med chatt, inloggning eller tangentbord. Spelomgången kontrolleras före och efter. Längsta sida är högst 1600 pixlar, JPEG högst 2 MB. Bilder lagras inte i chattens historik, loggar eller galleri. Text som syns i själva spelet kan vara privat: granska bilden före sändning; den maskeras inte automatiskt. Det är en enstaka historisk bild, ingen kontinuerlig syn eller automatisk spelstyrning.
+
+Integrationen använder fortfarande officiell ChatGPT-tokenbehörighet och Responses direkt från Android, med `store:false` och `stream:true`. Bildinmatning använder `input_image` med en JPEG-data-URL enligt [OpenAI:s bildguide](https://developers.openai.com/api/docs/guides/images-vision). [Token sharing-begränsningarna](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) tillåter bildinmatning när vald modell stöder den. Bildgenerering, generell datorstyrning och filuppladdnings-API ingår inte. Ingen separat API-debitering, extern server eller Codex app-server tillkommer. Stöd hos den aktuella kontomodellen och ett verkligt bildsvar behöver provas på enheten; modellnamnet ensamt är ingen verifiering.
+
+ZIP/7z-importen använder den befintliga arkivextraktorn i en privat arbetsmapp. Tak: 20 GiB för arkiv och uppackat innehåll, 50 000 poster, begränsat djup. Delade/lösenordsskyddade arkiv och fristående MSI/ISO stöds inte. Avbruten eller felaktig uppackning publiceras inte som spel. Originalarkivet behålls. Förberedelse av en befintlig fungerande spelmiljö gör ingenting; en ofullständig miljö med befintliga filer får inte raderas automatiskt. Wine-guiden slutförs manuellt. Ett DLL-namn i en logg visar inte att en viss nedladdning är korrekt; appen installerar inga slumpmässiga DLL-filer eller runtimepaket från nätet.
+
+Preflight är begränsad: högst 4 000 poster/djup 3 för snabb filkontroll och högst 3 000 spårade modfiler före vanlig biblioteksstart. Den kan inte upptäcka att sista BIN-delen saknas utan ett manifest. Historiska DLL-fel visas i assistentens kontroll; en gammal logg spärrar inte varje ny start. Debug- och externa startvägar omfattas inte av den automatiska Spela-kontrollen.
+
+Stutterverktyget använder upp till 30 sekunders överlappande tvåsekundersfönster och bortser från chattöppna eller frame-generation-stride-förändrade fönster. P95-medel är inte p95 för hela spelpasset eller 1% low. Saknade sensorer förblir okända. Temperatur och FPS paras från samma fönster; samtidiga förändringar bevisar inte värmestrypning. Mät **samma scen i 60 sekunder** före och efter ett enskilt försök. Målen 30/40/60/90/120 FPS finns kvar; inget resultat eller 120 FPS utlovas.
+
+### Testa på MagicPad
+
+1. Avsluta spelet och installera uppdateringen ovanpå AI Dev. Starta Bloodstained med befintliga kontrollinställningar och verifiera input först.
+2. Stäng spelet, spara en namngiven spelprofil, granska en liten ändring och återställ profilen. Prova **Ångra profil** även efter omstart av appen. Andra spel ska behålla sina inställningar.
+3. Be Codex byta en knapp, granska, tillämpa, starta och prova. Stäng spelet och ångra. Home ska fortsatt öppna menyn. Kontrollens spelarplats ändras vid behov i den vanliga Controller-menyn.
+4. Starta ett spel, bifoga en bild, förstora förhandsvisningen och fråga om ett synligt fel. Prova också att ta bort bilden och byta konversation. Ingen bild ska skickas före Skicka.
+5. Importera ett eget mindre ZIP-/7z-spel med setup och sidofiler. Fortsätt till Codex, granska installeraren, slutför guiden och välj spelets EXE. Prova avbrott före publicering; originalet ska finnas kvar.
+6. Spara modprofiler för två redan granskade paket och Original. Granska delade filer, byt prioritet, prova spelet och ångra.
+7. Kör två jämförbara mätningar och be om analys. Kontrollera sensortillgång och bildtider; tolka inga syntetiska testvärden som uppmätt vinst på MagicPad.
+
+### Verifiering av ai-dev.15
+
+Slutverifieringen omfattar assistent-, profil-, kontroll-, modmaterialiserings-, arkiv-, återställningsjournal- och FPS-tester samt `assembleModernDebug`. Tester använder verkliga lokala konfigurations-/modfiler, Room och Androids UI via Robolectric; AI-svar, dokumentleverantör, sensorer och bildinnehåll är simulerade. Profilflödet har körts i 360 × 800 och 1280 × 800 och skärmbilderna granskats. De nya testen täcker namngiven lagring efter omstart, kopiering av kontrollprofiler utan ändring i andra spel, enskild mappning, modordning/Original/ångra för både ersatta och nya filer, externa filändringar även med moddar avstängda, arkivnamn/kollisioner/path traversal/avbrott, bildförhandsvisning och bildinmatning över flera verktygsomgångar. Kontonas befintliga inloggningsflöde ändras inte.
+
+Resultat: **482 godkända tester, 0 fel, 1 överhoppat**. Det befintliga testet `ModTargetResolverTest.resolve_blocksAmbiguousExistingCaseVariants` kräver ett skiftlägeskänsligt filsystem och hoppar över på denna Mac. Bygget lyckades. Samtliga 32 native-bibliotek jämförs bytevis med ai-dev.14 vid paketering. Underlaget finns i `build/ai-dev/verification/game-care/`.
+
+Ingen fysisk Android-enhet är ansluten. PixelCopy från verklig Vulkan/GL-spelyta, modellens verkliga bildsvar via kontot, native 7z, första Wine-förberedelsen och Windows-guider, spelens inputrespons och verkliga FPS/temperaturresultat är **inte enhetstestade här**. Inga uppmätta prestandavinster påstås. Bygginstruktionerna längre ned gäller fortsatt; använd `-PaiDev=true` och befintlig `app/keystores/ai-dev.keystore` vid uppdateringar.
+
 ## Uppdatering 2026-10-02: 120 FPS och lokala spelinstallationer
 
 **1.2.1-ai-dev.14**, Android `versionCode=34`, utökar målvalet till **30, 40, 60, 90 och 120 FPS**. Valen radbryts i smala vyer. Befintliga spelmål och mätningar bevaras; valet av 120 FPS ändrar inte automatiskt begränsaren eller gör ett spel snabbare. Codex använder det valda målet och samma jämförelsemetod som i ai-dev.13. Exempeltexterna i chatten använder nu vanligt språk utan verktygsnamn.

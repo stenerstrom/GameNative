@@ -39,6 +39,30 @@ class GameAssistantAgentTest {
     private val fileEdit = """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b","replacements":[{"old_text":"FPS=60","new_text":"FPS=30"}],"reason":"Test FPS cap"}"""
     private val modAction = """{"mod_id":"local_test","action":"install","plan_id":"local_plan","reason":"Test"}"""
 
+    @Test fun careToolsAreExplicitAndStageOnlyOneLocallyReviewedAction() = runBlocking {
+        assertFalse(GameAssistantAgent.request("m", "help", emptyList()).getJSONArray("tools").toString().contains("propose_game_profile"))
+        val reads = mutableListOf<String>(); var proposals = 0
+        val tools = object : GameAssistantAgent.Tools {
+            override val careAccess = true
+            override suspend fun read(name: String): String { reads += name; return "{}" }
+            override suspend fun prepare(proposal: ConfigProposal) = error("No second action")
+            override suspend fun prepareCare(name: String, arguments: JSONObject): CarePreview { proposals++; return CarePreview("token", "A → B", "Test", listOf("Only this game")) }
+            override fun hasBackup() = false
+        }
+        val replies = ArrayDeque(listOf(call("read_control_profiles"), call("propose_controller_binding"), call("propose_settings", proposal), AssistantProtocol.Reply("Granska", null)))
+        var last: JSONObject? = null
+        val result = GameAssistantAgent.run("m", "change", emptyList(), tools, { last = it; replies.removeFirst() }, {})
+        assertEquals(1, proposals); assertEquals(listOf("read_control_profiles"), reads)
+        assertNotNull(result.careProposal); assertNull(result.proposal)
+        assertTrue(last!!.getJSONArray("input").toString().contains("awaiting_user_approval"))
+        assertTrue(last!!.getJSONArray("input").toString().contains("an action is already awaiting approval"))
+        assertTrue(last!!.getJSONArray("tools").toString().contains("read_preflight"))
+        val disabled = Tools()
+        val attempts = ArrayDeque(listOf(call("read_control_profiles"), call("propose_controller_binding"), AssistantProtocol.Reply("Unavailable", null)))
+        val rejected = GameAssistantAgent.run("m", "change", emptyList(), disabled, { attempts.removeFirst() }, {})
+        assertTrue(disabled.reads.isEmpty()); assertNull(rejected.careProposal)
+    }
+
     @Test fun offlineToolsAreRestrictedToLocalGamesAndNeverAcceptASecondAction() = runBlocking {
         assertFalse(GameAssistantAgent.request("m", "install", emptyList()).getJSONArray("tools").toString().contains("inspect_offline_installation"))
         var inspected = false; var prepared = 0

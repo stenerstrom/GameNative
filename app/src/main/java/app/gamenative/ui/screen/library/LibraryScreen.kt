@@ -1216,6 +1216,7 @@ private fun LibraryScreenContent(
                 }
             }
         } else {
+            val checkedStart = app.gamenative.assistant.rememberPreflightStart(onClickPlay)
             LibraryDetailPane(
                 libraryItem = selectedLibraryItem,
                 onBack = {
@@ -1224,7 +1225,7 @@ private fun LibraryScreenContent(
                 },
                 onClickPlay = {
                     selectedLibraryItem?.let { libraryItem ->
-                        onClickPlay(libraryItem.appId, it)
+                        checkedStart(libraryItem.appId, libraryItem.name, it)
                     }
                 },
                 onTestGraphics = {

@@ -89,6 +89,44 @@ class OfflineGameImportTest {
         assertEquals(0, File(CustomGameScanner.importRootPath).listFiles()!!.size)
         assertEquals(0, provider.deletions)
     }
+
+    private fun zip(name: String, extra: String? = null): Pair<Uri, ByteArray> {
+        val file = File(source, name)
+        java.util.zip.ZipOutputStream(file.outputStream()).use { zip ->
+            listOf("Game/", "Game/setup.exe", "Game/setup-1.bin").plus(listOfNotNull(extra)).forEach { path ->
+                zip.putNextEntry(java.util.zip.ZipEntry(path))
+                if (!path.endsWith('/')) zip.write(if (path.endsWith(".exe", true)) File(source, "setup.exe").readBytes() else byteArrayOf(1, 2, 3))
+                zip.closeEntry()
+            }
+        }
+        return DocumentsContract.buildDocumentUri("offline.test", "root/$name") to file.readBytes()
+    }
+    @Test fun zipPreservesDirectoryTreeAndSourceEvenForSpecialArchiveNames() = runBlocking {
+        for (name in listOf("...zip", "source.zip.zip", "Normal.zip")) {
+            val (uri, bytes) = zip(name)
+            val item = OfflineGameImport.archive(app, uri) {}
+            val imported = File(CustomGameScanner.getFolderPathFromAppId(item.appId)!!)
+            assertTrue(File(imported, "Game/setup.exe").isFile)
+            assertArrayEquals(byteArrayOf(1, 2, 3), File(imported, "Game/setup-1.bin").readBytes())
+            assertArrayEquals(bytes, File(source, name).readBytes())
+        }
+        assertEquals(0, provider.deletions)
+        assertFalse(File(CustomGameScanner.importRootPath).parentFile!!.listFiles()!!.any { it.name.startsWith(".offline-archive-") })
+    }
+    @Test fun rejectedOrCancelledArchiveNeverPublishesAndKeepsOriginal() = runBlocking {
+        for (bad in listOf("../../escaped.exe", "Game/SETUP.EXE", "Game/settings.ini:secret")) {
+            val (uri, bytes) = zip("Bad.zip", bad)
+            assertTrue(runCatching { OfflineGameImport.archive(app, uri) {} }.isFailure)
+            assertArrayEquals(bytes, File(source, "Bad.zip").readBytes())
+            assertTrue(PrefManager.customGameManualFolders.isEmpty())
+        }
+        val (uri, bytes) = zip("Cancel.zip")
+        assertTrue(runCatching { OfflineGameImport.archive(app, uri) { if (it.currentFile.startsWith("Packar upp")) throw CancellationException("cancel") } }.isFailure)
+        assertArrayEquals(bytes, File(source, "Cancel.zip").readBytes())
+        assertTrue(PrefManager.customGameManualFolders.isEmpty())
+        assertEquals(0, File(CustomGameScanner.importRootPath).listFiles()!!.size)
+        assertEquals(0, provider.deletions)
+    }
 }
 
 private class OfflineDocumentsProvider(private val source: File) : ContentProvider() {

@@ -1,13 +1,16 @@
-GameNative AI Dev 1.2.1-ai-dev.14 – 120 FPS och offlinespel
+GameNative AI Dev 1.2.1-ai-dev.15 – spelverktyg, profiler och bilder
 
-• Optimera stöder nu 30, 40, 60, 90 och 120 FPS. Tidigare mål och mätningar bevaras. Högre mål är inte en garanterad FPS-vinst; mät samma scen före och efter ett försök.
-• Bibliotek → + → Installera offlinespel med Codex importerar hela installationsmappen (EXE + BIN-filer och undermappar) eller en färdig spelmapp. Originalet behålls. Ofullständig kopiering publiceras inte som spel och biblioteket uppdateras vid återgång.
-• Fortsätt med Codex → Hjälp med installation och startfil. Assistenten undersöker detta spels EXE-filer och kan föreslå att starta installeraren i Wine. Du granskar filen och trycker Starta installeraren. Slutför Windows-guiden själv, gärna till C:\Games eller A:\Installed.
-• Stäng installeraren och be Codex hitta spelets startfil. Använd som startfil sparar den valda EXE-filen för start från biblioteket. Ångra startfil återställer tidigare startval och argument; installerade filer och Windows-registret omfattas inte.
-• Fil-ID:n, lokala sökrötter, kontroll av EXE-filens SHA-256 och stoppat spel krävs före tillämpning. Modellen får filtrerade filnamn och metadata; EXE- och BIN-innehåll skickas inte till modellen.
+• Spelverktyg samlar startkontroll, återställningsprofiler, kontroller och modprofiler i chatten.
+• Spara namngivna spellägen med grafik-/runtimeval, kontrollmappning och modval. Granska återställning, tillämpa och ångra även efter appomstart. Spelinstallation, sparfiler, register och runtimepaket kopieras inte.
+• Kontroll före start granskar EXE, kända konfigurationsfel, saknade DLL:er i tillgänglig logg och numrerade installationsdelar. Bibliotekets vanliga Spela-knapp visar lokala varningar före start utan AI-anrop.
+• Bifoga spelbild i in-game-chatten: tryck på miniatyren för större förhandsvisning, ta bort vid behov och skicka med nästa meddelande. Bilden tas från spelets renderingsyta och sparas inte i chatthistoriken. Ingen kontinuerlig syn eller automatisk maskering av privat bildinnehåll.
+• Offlineimport stöder ZIP och 7z samt mappar. Originalet behålls. Fortsätt förbereder Wine-miljön före chatten. Codex kan granska medföljande VC++/DirectX-EXE via installerarverktyget; Windows-guiden slutförs manuellt. Högst 20 GiB och 50 000 arkivposter; inga krypterade eller delade arkiv.
+• Codex kan kopiera kontrollbiblioteksprofil eller föreslå en knappmappning för bara valt spel. Enstaka knappbyte bevarar sticks och Home. Spelarplats och avancerad redigering finns kvar i den vanliga Controller-menyn. Ingen inputbrygga eller JNI har ändrats.
+• Modprofiler som Original/Grafik/Gameplay visar delade filer och aktiv vinnare. Granskade filmoddar kan växlas med filprioritet, uttryckligt modgodkännande och återställning. Gamla lagerbackuper bevaras. Plugin-laddordning och särskilda mål använder Modbibliotek och Nexus.
+• Be Codex undersöka hackandet samlar bildtider, sensorer, spelmål och mätningar för försiktiga hypoteser och ett försök i taget. 120 FPS är ett mål; jämför samma scen före och efter.
 
-Spelfilerna kan vara offline, men Codex-samtalet kräver internet via din befintliga ChatGPT-anslutning. Första stödet gäller x86/x64 EXE; packa upp ZIP/7z separat. Fristående MSI/ISO, automatisk Windows-guide och obevakad installation stöds inte ännu. Installerarens kompatibilitet behöver provas på enheten.
+Profiländringar kräver stoppat spel. Tidigare liveavläsning och stödda kontrollbryggeförsök finns kvar. Ändrade modfiler och inställningar blockerar överskrivning och behåller backupen.
 
-Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 34. Avinstallera inte och rensa inte data.
+Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket/signering, versionskod 35. Avinstallera inte och rensa inte data. Befintlig ChatGPT-anslutning används; ingen separat API-debitering.
 
-257 tester godkända och APK-bygge lyckat. Testerna täcker riktig filkopiering med simulerad Android-dokumentleverantör, avbrott, granskning, start-intent, val av installerad EXE, ångra, 120 FPS-flödet och tidigare kontrollfunktioner. UI i stående och liggande läge är granskat. Modellsvaren och mätvärdena är simulerade. Verklig Wine-installation, spelstart och 120 FPS på MagicPad återstår att prova.
+482 tester godkända, inga fel och ett befintligt filsystemberoende test överhoppat. APK-bygge lyckat; UI granskat i stående och liggande läge. Verklig PixelCopy/modellens bildsvar, native 7z, Wine-installation, spelinput och prestanda behöver provas på MagicPad. Se docs/MAGICPAD_AI_PROTOTYPE.md för teststegen och begränsningarna.

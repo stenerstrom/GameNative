@@ -10,8 +10,13 @@ object GameAssistantAgent {
     val FILE_TOOLS = setOf("list_game_files", "read_game_file", "propose_file_edit")
     val MOD_TOOLS = setOf("read_mods", "inspect_mod", "read_mod_document", "check_mod_health", "propose_mod_action")
     val OFFLINE_TOOLS = setOf("inspect_offline_installation", "propose_offline_action")
-    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS + OFFLINE_TOOLS
+    val CARE_READS = setOf("read_game_profiles", "read_control_profiles", "read_preflight", "read_stutter_context")
+    val CARE_WRITES = setOf("propose_game_profile", "propose_control_profile", "propose_controller_binding")
+    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS + OFFLINE_TOOLS + CARE_READS + CARE_WRITES
     interface Tools {
+        val careAccess: Boolean get() = false
+        suspend fun prepareCare(name: String, args: JSONObject): CarePreview = error("Profile tools unavailable")
+        val screenshot: GameScreenshot? get() = null
         suspend fun read(name: String): String
         suspend fun prepare(proposal: ConfigProposal): List<String>
         fun hasBackup(): Boolean
@@ -25,7 +30,7 @@ object GameAssistantAgent {
         suspend fun inspectOffline(): String = error("Offline installation is unavailable")
         suspend fun prepareOffline(arguments: JSONObject): OfflineGamePreview = error("Offline installation is unavailable")
     }
-    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false, offlineAccess: Boolean = false): JSONObject =
+    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false, offlineAccess: Boolean = false, careAccess: Boolean = false): JSONObject =
         AssistantProtocol.request(model, prompt, null, history).apply {
             put("instructions", """
                 You are GameNative's game assistant on Android, using the user's ChatGPT plan. Reply in the user's language.
@@ -37,7 +42,7 @@ object GameAssistantAgent {
                 For running-game performance/crash problems, use read_live_session first. It reads this launch's recent render-hook
                 metrics and secret-filtered process output at tool-call time. Check status and timestamps: paused, warming_up,
                 background, stale and no_frames are NOT current gameplay FPS. Missing output does not mean there was no error.
-                This is not screen vision or continuous AI monitoring. The panel itself can affect performance. A normal run is
+                A user-attached screenshot may be present for this turn; otherwise there is no screen vision. No continuous AI monitoring. The panel itself can affect performance. A normal run is
                 sufficient; request an optional debug run only if the available output cannot answer the question.
                 While playing, saved settings/files/mods and their durable undo require a stopped game. Controller bridge trials
                 are a separate exception: after read_input_route, propose ONLY inputApi/directInputMapper
@@ -84,7 +89,7 @@ object GameAssistantAgent {
                 Suggest a restart for SDL/Steam Input/loaded-driver changes, or cached game objects that ignore live attempts; do
                 not require restart before every supported bridge experiment. Keep a live proposal to inputApi/directInputMapper.
                 Use supported settings tools for relevant API/SDL/Steam Input changes with approval and undo. Player-slot reassignment
-                and profile remapping still use Quick Menu > Controller > Control Profiles / Edit Physical Controller; do not pretend
+                uses Quick Menu > Controller > Control Profiles / Edit Physical Controller; do not pretend
                 to have edited them. Compare a fresh controller test after a live trial or restart; the old trace is historical. Do not request a debug run
                 when the dedicated controller test is sufficient. No terminal, keyboard recording or credentials are needed.
                 AUTO controller API is automatic, not disabled; BOTH enables XInput and DirectInput in the saved configuration.
@@ -147,7 +152,7 @@ object GameAssistantAgent {
                 Ask them to finish the Windows wizard, preferably install to C:\\Games or A:\\Installed, then close it and ask you
                 to inspect again and select the installed game's EXE. Launching setup is not proof of installation or compatibility.
                 Ångra startfil restores launch selection/arguments only, not installation files or registry. Existing settings/file/mod undo is separate.
-                No screen vision, automatic wizard clicking, unattended installer switches, MSI/ZIP/7z extraction or downloads are connected.
+                The user can attach a screenshot from the running game or installer with Bild. No automatic wizard clicking, unattended installer switches, MSI execution or downloads are connected. ZIP/7z can be imported via the offline import screen.
                 Game files can be offline; cloud AI still requires internet. Imported/local games can then use the normal optimization tools.
                 FPS goals include 30, 40, 60, 90 and 120. A 120 FPS goal is not proof the game/hardware/display can reach it; measure first.
                 One settings/file/mod/offline/restore action per response. Do not claim arbitrary mod or Windows compatibility.
@@ -155,6 +160,7 @@ object GameAssistantAgent {
                 shared-file profile order and historical deployment recovery. If tools return a blocker, explain it specifically and
                 use that existing flow; do not invent success. Nexus permissions are separate from the ChatGPT subscription.
             """.trimIndent() else "\nMod tools are disabled. Mod support is available: the user can enable Tillåt modhantering under Spelåtkomst, then add a package with Lägg till mod. Do not claim the app cannot handle mods.")
+            if (careAccess) put("instructions", getString("instructions") + "\n" + GameCareAgent.instructions)
             put("include", JSONArray().put("reasoning.encrypted_content"))
             val functions = JSONArray()
             fun readTool(name: String, description: String) {
@@ -213,6 +219,7 @@ object GameAssistantAgent {
                 modTool("propose_mod_action", "Stage an install/re-enable or disable action for review. install uses an inspected plan_id; disable uses empty plan_id. Neither writes game files.",
                     JSONObject("""{"mod_id":{"type":"string"},"action":{"type":"string","enum":["install","disable"]},"plan_id":{"type":"string"},"reason":{"type":"string"}}"""))
             }
+            if (careAccess) GameCareAgent.functions(functions)
             put("tools", JSONArray().put(JSONObject().put("type", "namespace").put("name", "game")
                 .put("description", "Inspect and repair the selected GameNative game").put("tools", functions)))
             put("parallel_tool_calls", false)
@@ -220,21 +227,23 @@ object GameAssistantAgent {
 
     suspend fun run(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, tools: Tools,
         respond: suspend (JSONObject) -> AssistantProtocol.Reply, progress: (String) -> Unit): AssistantProtocol.Reply {
-        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess, tools.offlineAccess)
+        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess, tools.offlineAccess, tools.careAccess)
+        tools.screenshot?.attach(request)
         val input = request.getJSONArray("input")
         var readConfiguration = false
         var proposed: ConfigProposal? = null
         var fileProposed: GameTextFiles.Preview? = null
         var modProposed: ModActionPreview? = null
         var offlineProposed: OfflineGamePreview? = null
+        var careProposed: CarePreview? = null
         var restore = false
         val callIds = mutableSetOf<String>()
         repeat(8) {
             currentCoroutineContext().ensureActive()
             progress("Tänker…")
             val reply = respond(request)
-            check(reply.proposal == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null) { "Unexpected proposal outside agent tools" }
-            val call = reply.toolCall ?: return reply.copy(proposal = proposed, fileProposal = fileProposed, modProposal = modProposed, offlineProposal = offlineProposed, restoreRequested = restore)
+            check(reply.proposal == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null && reply.careProposal == null) { "Unexpected proposal outside agent tools" }
+            val call = reply.toolCall ?: return reply.copy(proposal = proposed, fileProposal = fileProposed, modProposal = modProposed, offlineProposal = offlineProposed, careProposal = careProposed, restoreRequested = restore)
             check(callIds.add(call.id)) { "Repeated tool call ID" }
             for (i in 0 until reply.output.length()) input.put(reply.output.get(i))
             progress(when (call.name) {
@@ -258,13 +267,16 @@ object GameAssistantAgent {
                 "propose_mod_action" -> "Förbereder modändringen…"
                 "inspect_offline_installation" -> "Letar efter installerare och spelets startfil…"
                 "propose_offline_action" -> "Förbereder installation eller startfil för granskning…"
+                in CARE_READS -> "Läser profiler och lokala kontroller…"
+                in CARE_WRITES -> "Förbereder profiländring för granskning…"
                 else -> "Kontrollerar återställning…"
             })
             val result = try {
                 check(call.name !in FILE_TOOLS || tools.fileAccess) { "File access is disabled. The user must enable Tillåt spelfiler first." }
                 check(call.name !in MOD_TOOLS || tools.modAccess) { "Mod access is disabled. Enable Tillåt modhantering first." }
                 check(call.name !in OFFLINE_TOOLS || tools.offlineAccess) { "Offline installation tools apply only to a selected local game. Import its folder first." }
-                check(proposed == null && fileProposed == null && modProposed == null && offlineProposed == null && !restore) { "Finish the response; an action is already awaiting approval" }
+                check(call.name !in CARE_READS + CARE_WRITES || tools.careAccess) { "Profile tools unavailable" }
+                check(proposed == null && fileProposed == null && modProposed == null && offlineProposed == null && careProposed == null && !restore) { "Finish the response; an action is already awaiting approval" }
                 when (call.name) {
                     "read_capabilities" -> {
                         require(call.arguments.length() == 0)
@@ -274,13 +286,20 @@ object GameAssistantAgent {
                             .put("liveControllerChanges", "Propose only inputApi/directInputMapper for the local Prova bryggan live and Ångra liveförsök buttons. Runtime legacy bridge only, no saved config/SDL startup changes; existing durable undo stays. Kontroll och input offers a read-only live monitor and a separate user-requested bridge reconnect without restart. Inspect runtime capabilities first.")
                             .put("fileAccess", tools.fileAccess).put("modAccess", tools.modAccess)
                             .put("modFeatures", "Import archives/files/folders; inspect packages and README; install/re-enable/disable with review and undo; native Nexus/FOMOD/profile manager")
+                            .put("gameCare", if (tools.careAccess) GameCareAgent.instructions else "Unavailable")
                             .put("offlineInstallation", tools.offlineAccess)
                             .put("offlineFeatures", "Import a folder via Bibliotek > + > Installera offlinespel med Codex; inspect_offline_installation then propose_offline_action. Local review can run an EXE installer or save the installed game's EXE. Windows wizard is manual; no arbitrary args/downloads. Launch-selection undo only.")
-                            .put("notConnected", "General shell, automatic Windows installer UI, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, player-slot writes and profile remapping")
+                            .put("notConnected", "General shell, automatic Windows installer UI, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, global player-slot writes")
                             .put("undoAvailable", tools.hasBackup()).toString()
                     }
                     "read_mods", "inspect_mod", "read_mod_document", "check_mod_health" -> tools.readModTool(call.name, call.arguments)
                     "inspect_offline_installation" -> { require(call.arguments.length() == 0); tools.inspectOffline() }
+                    in CARE_WRITES -> {
+                        val preview = tools.prepareCare(call.name, call.arguments)
+                        careProposed = preview
+                        JSONObject().put("status", "awaiting_user_approval").put("applied", false).put("title", preview.title)
+                            .put("changes", JSONArray(preview.changes)).toString()
+                    }
                     "propose_offline_action" -> {
                         val preview = tools.prepareOffline(call.arguments)
                         offlineProposed = preview
@@ -315,7 +334,7 @@ object GameAssistantAgent {
                     }
                     else -> {
                         require(call.name in TOOL_NAMES && call.arguments.length() == 0) { "Unsupported tool or arguments" }
-                        tools.read(call.name).also { if (call.name in setOf("read_configuration", "read_input_route", "read_optimization_context")) readConfiguration = true }
+                        tools.read(call.name).also { if (call.name in setOf("read_configuration", "read_input_route", "read_optimization_context", "read_stutter_context")) readConfiguration = true }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
@@ -324,7 +343,7 @@ object GameAssistantAgent {
             }
             currentCoroutineContext().ensureActive()
             input.put(JSONObject().put("type", "function_call_output").put("call_id", call.id).put("output", result))
-            check(input.toString().length <= 400_000) { "Agent context limit reached. Start a new conversation." }
+            check(input.toString().length <= 400_000 + if (tools.screenshot != null) 2_700_000 else 0) { "Agent context limit reached. Start a new conversation." }
         }
         error("Agenten nådde gränsen för undersökningssteg. Inget har ändrats. Försök med en mer avgränsad fråga.")
     }

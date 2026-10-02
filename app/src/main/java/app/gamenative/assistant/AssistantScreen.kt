@@ -1,5 +1,9 @@
 package app.gamenative.assistant
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.asImageBitmap
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,11 +47,13 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
     val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { model.importMod(LocalModSourceType.ARCHIVE, listOf(it)) } }
     val filesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) model.importMod(LocalModSourceType.FILES, uris) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let { model.importMod(LocalModSourceType.FOLDER, listOf(it)) } }
+    var careSheet by rememberSaveable { mutableStateOf(false) }
+    var imagePreview by remember { mutableStateOf(false) }
     var sheet by rememberSaveable { mutableStateOf<String?>(null) }
     var keepConfirmation by remember { mutableStateOf(false) }
     var newChatConfirmation by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
-    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.modProposal, state.offlineProposal, state.restoreRequested) {
+    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.modProposal, state.offlineProposal, state.careProposal, state.restoreRequested) {
         withFrameNanos { }
         scroll.animateScrollToItem((scroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
     }
@@ -60,7 +66,6 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     Text("${if (inGame) "Codex i spelet" else "Spelassistent"} · ${state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "ChatGPT"}",
                         style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
-                GameOptimizationButton(model, inGame)
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Alternativ") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -78,6 +83,11 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 }
             }
             HorizontalDivider()
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { careSheet = true }, enabled = !state.busy, modifier = Modifier.testTag("care-open")) { Text("Spelverktyg") }
+                GameOptimizationButton(model, inGame)
+                if (inGame) TextButton(onClick = model::captureScreenshot, enabled = !state.busy, modifier = Modifier.testTag("screenshot-capture")) { Text("Bifoga spelbild") }
+            }
             if (inGame) LiveSessionBanner(state.game, model)
             LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -186,7 +196,8 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         }
                     }
                 } }
-                if (state.backup) item {
+                if (state.careProposal != null || state.careUndo) item { GameCareReview(model, state, inGame) }
+                if (state.backup && !state.careUndo) item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(if (state.restoreRequested) "Återställ senaste ändringen?" else if (inGame) "Sparad ändring med säkerhetskopia" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
@@ -211,6 +222,13 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                                 Text(if (state.includeDiagnostics && state.modAccess) "Spel- och modverktyg på" else if (state.includeDiagnostics && state.fileAccess) "Spel- och filåtkomst på" else if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
                             }
                             if (!state.includeDiagnostics) Text("eller chatta utan verktyg", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    state.screenshot?.let { shot ->
+                        Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Image(shot.bitmap.asImageBitmap(), "Förhandsvisa bifogad spelbild", Modifier.size(100.dp, 65.dp).clickable { imagePreview = true })
+                            Text("Skickas med nästa meddelande. Granska att inga privata uppgifter syns; bilder filtreras inte automatiskt.", Modifier.weight(1f).padding(8.dp), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = model::removeScreenshot, enabled = !state.busy) { Text("Ta bort") }
                         }
                     }
                     Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -238,6 +256,16 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 }
             }
         }
+    }
+    if (careSheet) GameCareSheet(model, inGame) { careSheet = false }
+    if (imagePreview) state.screenshot?.let { shot ->
+        AlertDialog(onDismissRequest = { imagePreview = false }, title = { Text("Spelbild före sändning") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Image(shot.bitmap.asImageBitmap(), "Förhandsvisad spelbild", Modifier.fillMaxWidth().heightIn(max = 360.dp))
+                Text("Bara denna bild skickas när du trycker Skicka i chatten. Ta bort bilden om privata uppgifter syns.")
+            }
+        }, confirmButton = { TextButton(onClick = { imagePreview = false }) { Text("Stäng förhandsvisning") } },
+            dismissButton = { TextButton(onClick = { model.removeScreenshot(); imagePreview = false }, enabled = !state.busy) { Text("Ta bort bilden") } })
     }
     if (sheet != null) ModalBottomSheet(onDismissRequest = { sheet = null }) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(24.dp),

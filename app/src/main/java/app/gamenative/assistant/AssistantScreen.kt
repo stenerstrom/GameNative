@@ -74,7 +74,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 }
             }
             HorizontalDivider()
-            if (inGame) LiveSessionBanner(state.game)
+            if (inGame) LiveSessionBanner(state.game, model)
             LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (state.history.isEmpty()) item {

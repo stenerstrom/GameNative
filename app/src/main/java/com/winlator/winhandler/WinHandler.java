@@ -99,6 +99,29 @@ public class WinHandler {
     private RandomAccessFile[] extraGamepadRafs = new RandomAccessFile[MAX_PLAYERS - 1];
 
     private static volatile WinHandler activeInstance;
+    private volatile String assistantSessionToken;
+
+    public String getAssistantSessionToken() { return assistantSessionToken; }
+
+    /** App-side connection evidence only; it cannot prove that a PC game consumes input. */
+    public org.json.JSONObject getAssistantControllerStatus() {
+        org.json.JSONObject data = new org.json.JSONObject();
+        try {
+            org.json.JSONArray buffers = new org.json.JSONArray();
+            for (int slot = 0; slot < MAX_PLAYERS; slot++) {
+                buffers.put(new org.json.JSONObject().put("player", slot + 1)
+                        .put("bufferReady", getGamepadBuffer(slot) != null)
+                        .put("slotEnabled", controllerManager.isSlotEnabled(slot)));
+            }
+            data.put("handlerRunning", running).put("guestInitReceived", initReceived)
+                    .put("legacyGamepadClientCount", gamepadClients.size())
+                    .put("inputApi", preferredInputApi != null ? preferredInputApi.name() : org.json.JSONObject.NULL)
+                    .put("directInputMapper", (int) dinputMapperType).put("virtualGamepadActive", isVirtualGamepadActive())
+                    .put("buffers", buffers)
+                    .put("note", "Runtime WinHandler state, not just saved settings. Zero legacy clients is NOT proof of failure: SDL/evshim can use shared memory. Buffer readiness or a write does not prove game-side consumption.");
+        } catch (org.json.JSONException ignored) { }
+        return data;
+    }
 
     /**
      * The handler of the running session, or null while no session is up. Published from
@@ -739,6 +762,7 @@ public class WinHandler {
     }
 
     public void start() {
+        assistantSessionToken = app.gamenative.assistant.LiveGameSession.token();
         try {
             this.localhost = InetAddress.getLocalHost();
             Context context = activity.getApplicationContext();
@@ -1184,6 +1208,8 @@ public class WinHandler {
 
     private void sendMemoryFileState(ExternalController controller, MappedByteBuffer buffer, int slot) {
         if (buffer == null || controller == null) {
+            app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1,
+                    controller != null ? controller.state : null, false, false);
             return;
         }
         GamepadState state = controller.state;
@@ -1224,11 +1250,13 @@ public class WinHandler {
         buffer.put(OFF_HAT, (byte)0);
 
         notifyStateChanged(slot);
+        app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, true, false);
     }
 
     public void sendVirtualGamepadState(GamepadState state, int slot) {
         MappedByteBuffer buffer = getGamepadBuffer(slot);
         if (buffer == null || state == null) {
+            app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, false, true);
             return;
         }
         buffer.putInt(OFF_CONNECTED, 1);
@@ -1278,6 +1306,7 @@ public class WinHandler {
 
         // Notify native side that state changed
         notifyStateChanged(slot);
+        app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, true, true);
     }
 
     public void sendVirtualGamepadState(GamepadState state) {

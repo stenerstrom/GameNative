@@ -801,6 +801,9 @@ class PhysicalControllerHandler(
     ) {
         if (binding == Binding.NONE) return
 
+        app.gamenative.assistant.ControllerInputTrace.binding(xServer?.winHandler?.assistantSessionToken,
+            sourceDeviceId, sourceKeyCode, binding.name, isActionDown, offset)
+
         if (binding == Binding.GYRO_MODIFIER) {
             setGyroModifierPressed(sourceDeviceId, sourceKeyCode, sourceController, isActionDown)
             return

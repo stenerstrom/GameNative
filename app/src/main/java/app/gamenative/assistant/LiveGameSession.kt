@@ -122,14 +122,19 @@ class LiveSessionBuffer(private val wallTime: () -> Long, private val elapsedTim
 /** Hooks are inert in the upstream build. No network, disk persistence, extra sampler or new debug flags. */
 object LiveGameSession {
     internal val buffer = LiveSessionBuffer(System::currentTimeMillis, SystemClock::elapsedRealtime)
-    @JvmStatic fun begin(game: String, debugRun: Boolean) { if (BuildConfig.AI_ASSISTANT_ENABLED) buffer.begin(game, debugRun) }
+    @JvmStatic fun begin(game: String, debugRun: Boolean) {
+        if (BuildConfig.AI_ASSISTANT_ENABLED) { ControllerInputTrace.buffer.reset(); buffer.begin(game, debugRun) }
+    }
     @JvmStatic fun token() = buffer.token()
     @JvmStatic fun line(token: String?, line: String) { buffer.line(token, line) }
     @JvmStatic fun paused(token: String?, paused: Boolean) { buffer.paused(token, paused) }
-    fun collecting(token: String?, collecting: Boolean) { buffer.collecting(token, collecting) }
+    fun collecting(token: String?, collecting: Boolean) {
+        if (!collecting) ControllerInputTrace.background(token)
+        buffer.collecting(token, collecting)
+    }
     fun metrics(token: String?, snapshot: MetricsSnapshot, stride: Int) { buffer.metrics(token, snapshot, stride) }
     fun assistant(game: String, visible: Boolean) { buffer.assistant(game, visible) }
-    fun end() { buffer.end() }
+    fun end() { ControllerInputTrace.endLaunch(token()); buffer.end() }
     fun view(game: String) = buffer.view(game)
     fun read(game: String) = view(game)?.json() ?: """{"available":false,"note":"No active launch for the selected game. Historical reports are separate; start the game to read live data."}"""
 }

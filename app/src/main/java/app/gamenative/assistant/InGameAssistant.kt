@@ -50,7 +50,8 @@ fun AssistantQuickMenuButton(game: String?, onDismissMenu: () -> Unit) {
 @Composable
 fun InGameAssistantHost(game: String?) {
     if (!BuildConfig.AI_ASSISTANT_ENABLED || game == null) return
-    DisposableEffect(game) { onDispose { InGameAssistantUi.close(game) } }
+    DisposableEffect(game) { onDispose { InGameAssistantUi.close(game); ControllerTestUi.clear(game) } }
+    ControllerTestOverlay(game)
     if (!InGameAssistantUi.isOpenFor(game)) return
     val context = LocalContext.current
     val model: GameAssistantViewModel = viewModel(key = "in-game-assistant:$game",
@@ -68,6 +69,8 @@ fun InGameAssistantHost(game: String?) {
 internal fun InGameAssistantPanel(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit) {
     val state by model.state.collectAsState()
     DisposableEffect(state.game) {
+        ControllerInputTrace.finish(state.game)
+        if (ControllerTestUi.overlayGame == state.game) ControllerTestUi.overlayGame = null
         LiveGameSession.assistant(state.game, true)
         onDispose { LiveGameSession.assistant(state.game, false) }
     }
@@ -84,7 +87,7 @@ internal fun InGameAssistantPanel(model: GameAssistantViewModel, onClose: () -> 
 }
 
 @Composable
-internal fun LiveSessionBanner(game: String) {
+internal fun LiveSessionBanner(game: String, model: GameAssistantViewModel) {
     var live by remember(game) { mutableStateOf(LiveGameSession.view(game)) }
     LaunchedEffect(game) {
         while (isActive) {
@@ -105,7 +108,10 @@ internal fun LiveSessionBanner(game: String) {
                 else -> "Väntar på mätdata från spelet…"
             }
             Text(status, style = MaterialTheme.typography.labelLarge, modifier = Modifier.testTag("live-session-status"))
-            Text("Analys när du frågar med spelåtkomst. Inget debug run behövs.", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Analys när du frågar med spelåtkomst.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                ControllerTestButton(model)
+            }
             if (live?.paused == true) TextButton(onClick = {
                 if (LiveGameSession.view(game)?.paused == true && SteamService.keepAlive && PluviaApp.isOverlayPaused) {
                     PluviaApp.xEnvironment?.let {

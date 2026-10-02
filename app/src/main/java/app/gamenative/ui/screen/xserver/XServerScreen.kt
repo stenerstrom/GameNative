@@ -1675,6 +1675,10 @@ fun XServerScreen(
                 !keepPausedForEditor
         // logD("onKeyEvent(${it.event.device.sources})\n\tisGamepad: $isGamepad\n\tisKeyboard: $isKeyboard\n\t${it.event}")
 
+        app.gamenative.assistant.ControllerInputTrace.key(appId, it.event,
+            app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) || waitingForManualResume ||
+                showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode)
+
         if (app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) {
             false // The dialog owns keyboard/gamepad input, including when the game is suspended.
         } else if (waitingForManualResume) {
@@ -1759,6 +1763,10 @@ fun XServerScreen(
 
     val onMotionEvent: (AndroidEvent.MotionEvent) -> Boolean = {
         val isGamepad = ExternalController.isGameController(it.event?.device)
+
+        app.gamenative.assistant.ControllerInputTrace.motion(appId, it.event,
+            app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) || PluviaApp.isOverlayPaused ||
+                showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode)
 
         if (app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) ||
             ((showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode) && isGamepad)) {

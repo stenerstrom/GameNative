@@ -4,6 +4,47 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: kontrolltest under spel
+
+**1.2.1-ai-dev.9**, Android `versionCode=29`, ger assistenten underlag för att felsöka att ingen input når spelet. Kontrollen testas under vanlig spelkörning; inget debug run krävs. Detta löser inte i sig ett ännu okänt fel på den fysiska enheten.
+
+### Prova på MagicPad
+
+1. Stäng spelet. Välj **⋮ → Appuppdateringar**, eller installera [ai-dev.9-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-29/GameNative-AI-Dev-1.2.1-ai-dev.9.apk) ovanpå AI Dev. Samma paket-ID och signerare används. Avinstallera inte och rensa inte appdata.
+2. Starta det berörda spelet normalt. Välj **Quick Menu → Codex i spelet → Kontrolltest → Starta kontrolltest · 20 s**. Chatten stängs. Tryck och släpp A/B och styrkorset, rör båda spakarna i alla riktningar och tryck in/släpp båda triggers. Kontrollera om spelet reagerar.
+3. Rutan visar Android-prover och skrivningar till Wine-bryggan. Efter 20 sekunder slutar insamlingen; den öppnar inte chatten automatiskt. Tryck **Granska testet → Analysera testet**. Spelåtkomst behöver vara aktiverad. Analysknappen skickar en fråga om utebliven input genom den befintliga ChatGPT-anslutningen och visar svaret i chatten.
+4. Assistenten kan läsa testet, spelarplatser, profilmappningar, kontroll-API och aktuell konfiguration. Bedömningen ska skilja Android-mottagning, profilens valda utdata, saknad brygga och genomförd bryggskrivning. Tala om ifall spelet reagerade; appen kan inte själv bekräfta att PC-spelet läst signalen. Inga Android-signaler är inte ensamt bevis på en frånkopplad kontroll.
+5. För stödda ändringar av kontroll-API, DirectInput-mappare, SDL och Steam Input används befintlig granskning, säkerhetskopia och Ångra. Stäng spelet och öppna assistenten från biblioteket för ett nytt förslag innan **Tillämpa**. Senaste testet ligger kvar i processens minne efter spelavslut, markerat som historiskt. Ändringar får effekt nästa start. Spelarplats och detaljerade profilmappningar ändras fortfarande i GameNatives vanliga kontrollinställningar; agenten har ännu inga skrivverktyg för dem.
+6. Starta igen, gör ett nytt kontrolltest och jämför med faktisk respons i samma spelmoment. Prova Ångra med stoppat spel om ändringen inte hjälper. Ingen förbättring ska påstås utifrån enbart antal registrerade signaler.
+
+### Signalväg och avgränsning
+
+`ControllerInputTrace` samlar bara efter användarens uttryckliga start. Android-kroken sitter före spelvyns meny-/pausspärrar, profilstadiet i `PhysicalControllerHandler` och utdata efter `WinHandler`-skrivningen till respektive spelares minnesmappade kontrollbuffert. Händelser kopplas till spelets launch-token. Sena händelser från äldre starter avvisas. Registreringen slutar senast efter 20 sekunder, vid återgång till chatten, bakgrund eller spelavslut. Nästa test/spelstart ersätter resultatet. Ingen fil skrivs och resultatet finns inte kvar efter processomstart.
+
+Bufferten behåller högst 100 senaste händelser, 256 signalintervall och 8 anonyma kontrollnummer, med extrema värden och räknare över hela testet. Android-kroken tillåter fysiska gamepad-knappar, styrkors och tolv kända axlar; vanliga tangentbordstecken, skärmbilder, Bluetooth-adresser och enhetsdeskriptorer registreras inte. Mappade tangentbords-/musnamn avser profilens valda utdata, inte skriven text. Ingen automatisk modellfråga görs när testet startas, slutar eller granskas. Spelåtkomst och en uttrycklig analys/fråga krävs för molnanropet.
+
+`read_controller_trace` redovisar om samma spelomgång fortfarande körs. `inspect_controllers` visar begränsade axel-/profiluppgifter, spelarplatser och aktiv `WinHandler`-status när rätt spel körs. `WINE_BUFFER` betyder att appens minnesskrivning genomförts; de rapporterade värdena är `GamepadState` före axelkodning/triggerkurva, inte avläst gästrespons. Noll äldre UDP-klienter betyder inte fel eftersom SDL/evshim kan använda delat minne. Skärmkontroller kan ge bryggskrivningar utan fysiska Android-gamepad-händelser. Räknarna kan sammanfatta flera kontroller och är inte en entydig matchning mellan varje inkommande och utgående signal.
+
+### Verifiering
+
+**209 tester godkända, inga fel eller överhoppade tester.** JVM-/Robolectric-tester täcker filter, avgränsning, tid/bakgrund/stopp, begränsade buffertar, knapptryck/släpp och axelvärden. Ett integrationstest kör riktig `PhysicalControllerHandler` och `WinHandler` mot en minnesmappad fil: fysisk A mappas till virtuell B, anslutningsflagga och B-byte skrivs, släpp nollställer B. Endast native-bibliotekets laddning/JNI-väckning ersätts i det testet; Wine-gästen körs inte.
+
+Compose-tester i liggande 1280×800 dp och stående 600×960 dp verifierar start, stängd chatt under testet, kvarvarande RESUMED-aktivitet, avslutat test, analys med simulerade modellsvar, verktygsläsning, ändringsförslag och spärrad konfigurationsskrivning under spel. Layoutbilder har granskats. Befintliga assistent-, inloggnings-, fil-, mod-, uppdaterings-, FPS-, konfigurations-, stickmappnings- och inputmixningstester ingår. Bygge och tester körs med:
+
+```sh
+./gradlew :app:testModernDebugUnitTest \
+  --tests 'app.gamenative.assistant.*' \
+  --tests 'app.gamenative.ui.screen.xserver.PhysicalControllerHandlerTest' \
+  --tests 'com.winlator.inputcontrols.PhysicalControllerStickTuningTest' \
+  --tests 'com.winlator.widget.InputControlsViewStickMixingTest' \
+  --tests 'app.gamenative.ui.component.FpsLimiterUtilsTest' \
+  --tests 'app.gamenative.ui.component.dialog.ContainerConfigDialogContainerUpdateTest' \
+  :app:assembleModernDebug -PaiDev=true
+./tools/package-ai-dev-update.py
+```
+
+Använd JDK/Android-miljön som beskrivs nedan. Paket, version och APK-signatur kontrolleras även av paketeringsskriptet. Inga fysiska Android-enheter var anslutna. Bluetooth/USB på MagicPad, faktisk Wine/evshim-signalöverföring, spelrespons, ett riktigt modellsvar på kontrolltestet och installation ovanpå ai-dev.8 behöver provas på enheten. Lokala verifieringsfiler sparas i `build/ai-dev/verification/controller-input/`.
+
 ## Uppdatering 2026-10-02: assistenten under spel och livediagnostik
 
 **1.2.1-ai-dev.8**, Android `versionCode=28`, lägger till **Quick Menu → Codex i spelet** på alla snabbmenyflikar. Samma native-agent och officiella ChatGPT-anslutning används. Ingen separat dator, ny inloggningsmetod eller API-debitering tillkommer.

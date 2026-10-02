@@ -71,22 +71,40 @@ class GameAssistantTools(private val context: Context, private val appId: String
     }
     override suspend fun read(name: String): String {
         if (name == "read_live_session") return LiveGameSession.read(appId)
+        if (name == "read_controller_trace") return ControllerInputTrace.read(appId)
         if (name == "read_performance" || name == "read_game_log") {
             LiveGameSession.view(appId)?.let { return it.json() }
         }
         if (name == "inspect_controllers") return withContext(Dispatchers.Main) {
             val manager = com.winlator.inputcontrols.ControllerManager.getInstance()
             val devices = JSONArray()
+            val live = LiveGameSession.view(appId)
+            val handler = app.gamenative.PluviaApp.xServerView?.getxServer()?.winHandler?.takeIf { live != null && it.assistantSessionToken == live.token }
+            val profile = if (handler != null) app.gamenative.PluviaApp.inputControlsView?.profile else null
             InputDevice.getDeviceIds().take(64).mapNotNull { InputDevice.getDevice(it) }.filter {
                 !it.isVirtual && (it.supportsSource(InputDevice.SOURCE_GAMEPAD) || it.supportsSource(InputDevice.SOURCE_JOYSTICK))
             }.forEach { device ->
                 val slot = manager.getSlotForDevice(device.id)
                 devices.put(JSONObject().put("name", DiagnosticRedactor.text(device.name).take(120))
-                    .put("player", if (slot in 0..3) slot + 1 else JSONObject.NULL))
+                    .put("probeController", ControllerInputTrace.buffer.controllerNumber(appId, device.id) ?: JSONObject.NULL)
+                    .put("player", if (slot in 0..3) slot + 1 else JSONObject.NULL)
+                    .put("slotEnabled", if (slot in 0..3) manager.isSlotEnabled(slot) else JSONObject.NULL)
+                    .put("reportedAxes", JSONArray(device.motionRanges.take(24).map { range -> JSONObject()
+                        .put("axis", android.view.MotionEvent.axisToString(range.axis)).put("min", range.min)
+                        .put("max", range.max).put("flat", range.flat) }))
+                    .put("profileBindings", JSONArray(profile?.getController(device.id)?.controllerBindings.orEmpty().take(64).map { binding ->
+                        JSONObject().put("sourceCode", binding.keyCodeForAxis).put("outputs", JSONArray(binding.bindingCombo.bindings.map { it.name }))
+                    })))
             }
             JSONObject().put("detectedControllers", devices)
                 .put("enabledPlayerSlots", JSONArray((0..3).filter { manager.isSlotEnabled(it) }.map { it + 1 }))
-                .put("note", "Android detection and current GameNative slot state only. This does not test buttons inside the game or inspect Bluetooth pairing. No serials, descriptors or addresses included.").toString()
+                .put("runtimeBridge", handler?.assistantControllerStatus ?: JSONObject.NULL)
+                .put("inputControlsProfile", profile?.let { JSONObject().put("id", it.id).put("name", DiagnosticRedactor.text(it.name).take(120))
+                    .put("virtualGamepad", it.isVirtualGamepad).put("leftStickDeadzone", it.leftStickDeadzone)
+                    .put("rightStickDeadzone", it.rightStickDeadzone).put("stickTuningConfigured", it.isStickTuningConfigured)
+                    .put("note", "Current InputControlsView profile. Actual physical binding selection is recorded by the controller test.") } ?: JSONObject.NULL)
+                .put("limits", "First 64 Android device IDs, up to 24 axes and 64 profile bindings per controller. Omitted bindings may exist.")
+                .put("note", "Android detection and current GameNative slot/runtime state only. Use read_controller_trace for actual test events. This does not test buttons inside the game or inspect Bluetooth pairing. No serials, descriptors or addresses included.").toString()
         }
         return withContext(Dispatchers.IO) {
             require(name in setOf("read_configuration", "read_game_log", "read_performance"))

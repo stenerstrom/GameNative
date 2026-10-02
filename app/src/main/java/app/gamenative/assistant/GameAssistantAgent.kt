@@ -9,7 +9,7 @@ import org.json.JSONObject
 object GameAssistantAgent {
     val FILE_TOOLS = setOf("list_game_files", "read_game_file", "propose_file_edit")
     val MOD_TOOLS = setOf("read_mods", "inspect_mod", "read_mod_document", "check_mod_health", "propose_mod_action")
-    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_game_log", "read_performance", "read_live_session", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS
+    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_game_log", "read_performance", "read_live_session", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS
     interface Tools {
         suspend fun read(name: String): String
         suspend fun prepare(proposal: ConfigProposal): List<String>
@@ -43,6 +43,19 @@ object GameAssistantAgent {
                 A successful propose_settings result means awaiting approval, NOT applied. Never claim a fix has already been applied.
                 The user presses Apply locally; they need to stop the game first. Changed settings take effect next launch.
                 Use request_restore to show the undo action if asked to undo. You cannot silently apply or restore changes.
+                For controller problems, call inspect_controllers and read_controller_trace, then read_configuration before proposing a fix.
+                If no trace exists, guide the user to Kontrolltest in the in-game panel: start a 20-second test, press A/B/directions,
+                move both sticks/triggers, then return. The chat closes during testing so its input focus cannot mask game input.
+                Inspect actual Android events, selected profile bindings and app-side Wine shared-memory writes by player. A blocked
+                overlay/pause route is not a game defect. If nothing responds, distinguish no Android events, disabled/unassigned/wrong
+                player slot, profile keyboard/mouse mappings, unavailable bridge buffers, and saved versus runtime API selection.
+                No events alone is inconclusive (the user may not have pressed anything or Android may intercept it). Zero legacy
+                gamepad clients is not a fault by itself: SDL/evshim can use shared memory. A buffer write is NOT proof the game reads
+                input. State what evidence stops at, and ask whether the PC game reacted. Never promise a game-side fix from trace alone.
+                Use supported settings tools for relevant API/SDL/Steam Input changes with approval and undo. Player-slot reassignment
+                and profile remapping still use Quick Menu > Controller > Control Profiles / Edit Physical Controller; do not pretend
+                to have edited them. Compare a new controller test after restarting; the old trace is historical. Do not request a debug run
+                when the dedicated controller test is sufficient. No terminal, keyboard recording or credentials are needed.
                 AUTO controller API is automatic, not disabled; BOTH enables XInput and DirectInput in the saved configuration.
                 A DirectInput mapper is separate from enabling the API. Detected hardware does not prove input works inside the game.
                 Preserve already-enabled APIs when appropriate. A frame cap cannot create missing FPS. Lower resolution can reduce GPU
@@ -89,7 +102,8 @@ object GameAssistantAgent {
             readTool("read_game_log", "Read a bounded, secret-filtered log belonging to this game. Missing logs are reported; no debug run is required.")
             readTool("read_performance", "Read the active launch's performance when available; otherwise saved samples and last-session metadata. Check freshness. Not a controlled benchmark.")
             readTool("read_live_session", "Read fresh/stale/paused status, recent FPS/frame times, available CPU/GPU sensors and bounded filtered stdout/stderr for ONLY this game's current launch. No screen capture. No debug run required.")
-            readTool("inspect_controllers", "Inspect Android-detected gamepad/joystick names and GameNative's current player-slot state. Does not test input inside the game.")
+            readTool("inspect_controllers", "Inspect connected controllers, enabled player slots, reported axes, active InputControlsView profile mappings and runtime Wine bridge readiness. Not proof of in-game response.")
+            readTool("read_controller_trace", "Read the user's latest explicit 20-second controller test for this game: Android gamepad events, physical profile binding selections and app-side Wine shared-memory writes, blocked routes and axis/button ranges. Never records keyboard text. A write does not prove game-side consumption.")
             readTool("request_restore", "Ask the app to show the existing undo action. Nothing is restored until the user approves locally.")
             val parameters = JSONObject("""{"type":"object","properties":{
                 "changes":{"type":"array","items":{"type":"object","properties":{
@@ -156,6 +170,7 @@ object GameAssistantAgent {
                 "read_performance" -> "Granskar prestandadata…"
                 "read_live_session" -> "Läser den pågående spelomgången…"
                 "inspect_controllers" -> "Kontrollerar handkontroller…"
+                "read_controller_trace" -> "Följer kontrollens signal genom appen…"
                 "propose_settings" -> "Förbereder ändringar för ditt godkännande…"
                 "list_game_files" -> "Letar efter spelets konfigurationsfiler…"
                 "read_game_file" -> "Läser spelfilen…"
@@ -176,10 +191,10 @@ object GameAssistantAgent {
                     "read_capabilities" -> {
                         require(call.arguments.length() == 0)
                         JSONObject().put("settings", "${GameSettingCatalog.settings.size} supported settings; read config then propose_settings")
-                            .put("diagnostics", "read_live_session for current launch FPS/frame times/sensors/filtered process output with freshness and pause status; saved game logs/performance when no launch is active; Android controllers")
+                            .put("diagnostics", "read_live_session for current launch FPS/frame times/sensors/filtered process output with freshness and pause status; saved game logs/performance when no launch is active; inspect_controllers for slots/runtime bridge; read_controller_trace for the user's local 20-second gamepad test, physical bindings and app-side shared-memory writes, not proof of PC-game consumption")
                             .put("fileAccess", tools.fileAccess).put("modAccess", tools.modAccess)
                             .put("modFeatures", "Import archives/files/folders; inspect packages and README; install/re-enable/disable with review and undo; native Nexus/FOMOD/profile manager")
-                            .put("notConnected", "General shell, Windows installer execution, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing")
+                            .put("notConnected", "General shell, Windows installer execution, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, player-slot writes and profile remapping")
                             .put("undoAvailable", tools.hasBackup()).toString()
                     }
                     "read_mods", "inspect_mod", "read_mod_document", "check_mod_health" -> tools.readModTool(call.name, call.arguments)

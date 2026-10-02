@@ -64,12 +64,14 @@ public class WinHandler {
     private final ArrayDeque<Runnable> actions;
     private ExternalController currentController;
     private volatile int currentControllerId;
-    private byte dinputMapperType;
+    private volatile byte dinputMapperType;
     private final List<Integer> gamepadClients;
     private boolean initReceived;
     private InetAddress localhost;
     private OnGetProcessInfoListener onGetProcessInfoListener;
-    private PreferredInputApi preferredInputApi;
+    private volatile PreferredInputApi preferredInputApi;
+    private volatile boolean assistantReconnecting;
+    private volatile int gamepadDiscoveryCount;
     private final ByteBuffer receiveData;
     private final DatagramPacket receivePacket;
     private volatile boolean running;
@@ -117,6 +119,8 @@ public class WinHandler {
                     .put("legacyGamepadClientCount", gamepadClients.size())
                     .put("inputApi", preferredInputApi != null ? preferredInputApi.name() : org.json.JSONObject.NULL)
                     .put("directInputMapper", (int) dinputMapperType).put("virtualGamepadActive", isVirtualGamepadActive())
+                    .put("legacyDiscoveryCount", gamepadDiscoveryCount).put("reconnecting", assistantReconnecting)
+                    .put("liveApiScope", "API/mapper setters affect subsequent legacy GET_GAMEPAD discovery requests only. They do not change the SDL environment or a game's cached controller objects. A bridge reconnect is a request, not a guest acknowledgement.")
                     .put("buffers", buffers)
                     .put("note", "Runtime WinHandler state, not just saved settings. Zero legacy clients is NOT proof of failure: SDL/evshim can use shared memory. Buffer readiness or a write does not prove game-side consumption.");
         } catch (org.json.JSONException ignored) { }
@@ -329,6 +333,7 @@ public class WinHandler {
         if (buffer == null) {
             return;
         }
+        connected = connected && !assistantReconnecting;
         if (connected && buffer.getInt(OFF_CONNECTED) == 0) {
             writeNeutralGamepadState(buffer);
         }
@@ -619,42 +624,18 @@ public class WinHandler {
                 this.onGetProcessInfoListener.onGetProcessInfo(index, numProcesses, new ProcessInfo(pid, name, memoryUsage, affinityMask, wow64Process));
                 return;
             case RequestCodes.GET_GAMEPAD:
+                gamepadDiscoveryCount++;
                 boolean isXInput = this.receiveData.get() == 1;
                 boolean notify = this.receiveData.get() == 1;
-                final ControlsProfile profile = inputControlsView.getProfile();
+                final ControlsProfile profile = inputControlsView != null ? inputControlsView.getProfile() : null;
                 final boolean useVirtualGamepad = inputControlsView != null && profile != null && profile.isVirtualGamepad();
                 int processId = this.receiveData.getInt();
                 if (!useVirtualGamepad && ((externalController = this.currentController) == null || !externalController.isConnected())) {
                     this.currentController = ExternalController.getController(0);
                 }
-                boolean enabled2 = this.currentController != null || useVirtualGamepad;
+                boolean enabled2 = !assistantReconnecting && (this.currentController != null || useVirtualGamepad);
                 if (enabled2) {
-                    switch (this.preferredInputApi) {
-                        case DINPUT:
-                            boolean hasXInputProcess = this.xinputProcesses.contains(Integer.valueOf(processId));
-                            if (isXInput) {
-                                if (!hasXInputProcess) {
-                                    this.xinputProcesses.add(Integer.valueOf(processId));
-                                    break;
-                                }
-                            } else if (hasXInputProcess) {
-                                enabled = false;
-                                break;
-                            }
-                            break;
-                        case XINPUT:
-                            if (isXInput) {
-                                enabled = false;
-                                break;
-                            }
-                            break;
-                        case BOTH:
-                            if (!isXInput) {
-                                enabled = false;
-                                break;
-                            }
-                            break;
-                    }
+                    enabled = isControllerApiEnabled(isXInput, processId);
                     if (notify) {
                         if (!this.gamepadClients.contains(Integer.valueOf(port))) {
                             this.gamepadClients.add(Integer.valueOf(port));
@@ -715,10 +696,10 @@ public class WinHandler {
                 return;
             case RequestCodes.GET_GAMEPAD_STATE:
                 final int gamepadId = this.receiveData.getInt();
-                final ControlsProfile profile2 = inputControlsView.getProfile();
+                final ControlsProfile profile2 = inputControlsView != null ? inputControlsView.getProfile() : null;
                 final boolean useVirtualGamepad2 = inputControlsView != null && profile2 != null && profile2.isVirtualGamepad();
                 ExternalController externalController2 = this.currentController;
-                final boolean enabled3 = externalController2 != null || useVirtualGamepad2;
+                final boolean enabled3 = !assistantReconnecting && (externalController2 != null || useVirtualGamepad2);
                 if (externalController2 != null && externalController2.getDeviceId() != gamepadId) {
                     this.currentController = null;
                 }
@@ -1044,7 +1025,7 @@ public class WinHandler {
         }
         final ControlsProfile profile = inputControlsView != null ? inputControlsView.getProfile() : null;
         final boolean useVirtualGamepad = isVirtualGamepadActive();
-        final boolean enabled = this.currentController != null || useVirtualGamepad;
+        final boolean enabled = !assistantReconnecting && (this.currentController != null || useVirtualGamepad);
         Iterator<Integer> it = this.gamepadClients.iterator();
         while (it.hasNext()) {
             final int port = it.next().intValue();
@@ -1194,7 +1175,41 @@ public class WinHandler {
     }
 
     public void setPreferredInputApi(PreferredInputApi preferredInputApi) {
-        this.preferredInputApi = preferredInputApi;
+        synchronized (xinputProcesses) {
+            if (this.preferredInputApi != preferredInputApi) xinputProcesses.clear();
+            this.preferredInputApi = preferredInputApi;
+        }
+    }
+
+    /** Existing UDP discovery protocol: true is an XInput request, false is DirectInput. */
+    public boolean isControllerApiEnabled(boolean isXInput, int processId) {
+        synchronized (xinputProcesses) {
+            switch (preferredInputApi) {
+                case DINPUT: return !isXInput;
+                case XINPUT: return isXInput;
+                case BOTH: return true;
+                case AUTO:
+                    // Avoid exposing the same controller twice to a process already using XInput.
+                    if (isXInput && !xinputProcesses.contains(processId)) {
+                        if (xinputProcesses.size() >= 128) xinputProcesses.remove(0);
+                        xinputProcesses.add(processId);
+                    }
+                    return isXInput || !xinputProcesses.contains(processId);
+                default: return false;
+            }
+        }
+    }
+
+    /** Brief, reversible hotplug request. The caller must always finish it on this same launch. */
+    public void beginAssistantControllerReconnect() {
+        assistantReconnecting = true;
+        for (int slot = 0; slot < MAX_PLAYERS; slot++) setGamepadSlotConnected(slot, false);
+        sendGamepadState();
+    }
+
+    public void finishAssistantControllerReconnect() {
+        assistantReconnecting = false;
+        refreshControllerMappingsForHotplug();
     }
 
     public ExternalController getCurrentController() {
@@ -1207,6 +1222,7 @@ public class WinHandler {
     }
 
     private void sendMemoryFileState(ExternalController controller, MappedByteBuffer buffer, int slot) {
+        if (assistantReconnecting) return;
         if (buffer == null || controller == null) {
             app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1,
                     controller != null ? controller.state : null, false, false);
@@ -1254,6 +1270,7 @@ public class WinHandler {
     }
 
     public void sendVirtualGamepadState(GamepadState state, int slot) {
+        if (assistantReconnecting) return;
         MappedByteBuffer buffer = getGamepadBuffer(slot);
         if (buffer == null || state == null) {
             app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, false, true);

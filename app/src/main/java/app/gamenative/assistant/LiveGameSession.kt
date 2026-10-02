@@ -123,7 +123,7 @@ class LiveSessionBuffer(private val wallTime: () -> Long, private val elapsedTim
 object LiveGameSession {
     internal val buffer = LiveSessionBuffer(System::currentTimeMillis, SystemClock::elapsedRealtime)
     @JvmStatic fun begin(game: String, debugRun: Boolean) {
-        if (BuildConfig.AI_ASSISTANT_ENABLED) { ControllerInputTrace.buffer.reset(); buffer.begin(game, debugRun) }
+        if (BuildConfig.AI_ASSISTANT_ENABLED) { LiveControllerChanges.clear(); ControllerInputTrace.buffer.reset(); buffer.begin(game, debugRun) }
     }
     @JvmStatic fun token() = buffer.token()
     @JvmStatic fun line(token: String?, line: String) { buffer.line(token, line) }
@@ -134,7 +134,7 @@ object LiveGameSession {
     }
     fun metrics(token: String?, snapshot: MetricsSnapshot, stride: Int) { buffer.metrics(token, snapshot, stride) }
     fun assistant(game: String, visible: Boolean) { buffer.assistant(game, visible) }
-    fun end() { ControllerInputTrace.endLaunch(token()); buffer.end() }
+    fun end() { ControllerInputTrace.endLaunch(token()); buffer.end(); LiveControllerChanges.clear() }
     fun view(game: String) = buffer.view(game)
     fun read(game: String) = view(game)?.json() ?: """{"available":false,"note":"No active launch for the selected game. Historical reports are separate; start the game to read live data."}"""
 }

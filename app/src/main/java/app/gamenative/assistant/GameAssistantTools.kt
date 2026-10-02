@@ -99,6 +99,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
             JSONObject().put("detectedControllers", devices)
                 .put("enabledPlayerSlots", JSONArray((0..3).filter { manager.isSlotEnabled(it) }.map { it + 1 }))
                 .put("runtimeBridge", handler?.assistantControllerStatus ?: JSONObject.NULL)
+                .put("liveControllerTrial", LiveControllerChanges.status(appId))
                 .put("inputControlsProfile", profile?.let { JSONObject().put("id", it.id).put("name", DiagnosticRedactor.text(it.name).take(120))
                     .put("virtualGamepad", it.isVirtualGamepad).put("leftStickDeadzone", it.leftStickDeadzone)
                     .put("rightStickDeadzone", it.rightStickDeadzone).put("stickTuningConfigured", it.isStickTuningConfigured)
@@ -125,8 +126,18 @@ class GameAssistantTools(private val context: Context, private val appId: String
         }
     }
     override suspend fun prepare(proposal: ConfigProposal): List<String> = withContext(Dispatchers.IO) {
-        check(!hasBackup()) { "A previous change still has an undo backup. The user must restore it or keep it before another change." }
         val hash = requireNotNull(inspectedHash) { "Read configuration first" }
+        // Runtime experiments never touch the durable config/file/mod undo. Existing backups may stay.
+        val live = if (SteamService.keepAlive && app.gamenative.PluviaApp.xServerView != null) {
+            withContext(Dispatchers.Main) { LiveControllerChanges.preview(appId, proposal) }
+        } else null
+        if (live != null) {
+            preparedHash = hash
+            preparedChanges = listOf("Live kontrollbrygga: ${live.before.describe()} → ${live.after.describe()}",
+                "Endast denna spelomgång. Sparade inställningar och befintliga säkerhetskopior ändras inte.")
+            return@withContext preparedChanges
+        }
+        check(!hasBackup()) { "A previous change still has an undo backup. The user must restore it or keep it before another saved change. Separate live bridge experiments can keep that backup." }
         transaction().preview(hash, proposal).also { preparedHash = hash; preparedChanges = it }
     }
 

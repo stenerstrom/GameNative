@@ -13,6 +13,11 @@ import com.winlator.xserver.XServer
 import java.io.RandomAccessFile
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
+import java.nio.ByteBuffer
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.util.ArrayDeque
+import com.winlator.widget.InputControlsView
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -42,6 +47,79 @@ class ShadowControllerWinHandlerNative {
 class ControllerBridgeTest {
     @get:Rule val folder = TemporaryFolder()
     @After fun cleanup() { LiveGameSession.end(); ControllerInputTrace.buffer.reset() }
+
+    private fun bridge(): WinHandler {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        PrefManager.init(app); ControllerManager.getInstance().init(app)
+        return WinHandler(mock<XServer>(), mock<XServerRendererView>().also { whenever(it.context).thenReturn(app) })
+    }
+
+    @Test fun actualDiscoveryRepliesRespectEveryApiAndLiveSetterWithoutRestart() {
+        val bridge = bridge()
+        val profile = mock<ControlsProfile>().also {
+            ControlsProfile::class.java.getDeclaredField("id").apply { isAccessible = true; setInt(it, 7) }
+            whenever(it.isVirtualGamepad).thenReturn(true)
+            whenever(it.name).thenReturn("Test controller")
+        }
+        val view = mock<InputControlsView>().also { whenever(it.profile).thenReturn(profile) }
+        bridge.setInputControlsView(view)
+        fun field(name: String) = WinHandler::class.java.getDeclaredField(name).apply { isAccessible = true }
+        field("socket").set(bridge, mock<DatagramSocket>())
+        field("localhost").set(bridge, InetAddress.getLoopbackAddress())
+        val input = field("receiveData").get(bridge) as ByteBuffer
+        val output = field("sendData").get(bridge) as ByteBuffer
+        @Suppress("UNCHECKED_CAST") val actions = field("actions").get(bridge) as ArrayDeque<Runnable>
+        val handle = WinHandler::class.java.getDeclaredMethod("handleRequest", Byte::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }
+        fun discovery(xinput: Boolean, pid: Int = 42): Boolean {
+            input.clear(); input.put(if (xinput) 1.toByte() else 0.toByte()); input.put(0.toByte()); input.putInt(pid); input.flip()
+            handle.invoke(bridge, 8.toByte(), 10001) // GET_GAMEPAD wire code.
+            actions.removeFirst().run()
+            assertEquals(8.toByte(), output.get(0))
+            return output.getInt(1) == 7
+        }
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.XINPUT)
+        assertTrue(discovery(true)); assertFalse(discovery(false))
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.DINPUT)
+        assertFalse(discovery(true)); assertTrue(discovery(false))
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.BOTH)
+        assertTrue(discovery(true)); assertTrue(discovery(false))
+        bridge.setDInputMapperType(2)
+        assertTrue(discovery(false)); assertEquals(2, output.get(5).toInt())
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.AUTO)
+        assertTrue(discovery(false)); assertTrue(discovery(true)); assertFalse(discovery(false))
+        assertTrue(discovery(false, pid = 43))
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.BOTH)
+        bridge.setPreferredInputApi(WinHandler.PreferredInputApi.AUTO)
+        assertTrue(discovery(false)) // AUTO history resets on an API change.
+        assertEquals(12, bridge.assistantControllerStatus.getInt("legacyDiscoveryCount"))
+    }
+
+    @Test fun reconnectDisconnectsSharedMemoryBlocksWritesAndReturnsNeutralConnectedState() {
+        val bridge = bridge()
+        val profile = mock<ControlsProfile>().also { whenever(it.isVirtualGamepad).thenReturn(true) }
+        val view = mock<InputControlsView>().also {
+            whenever(it.profile).thenReturn(profile)
+            whenever(it.isShowTouchscreenControls).thenReturn(true)
+            whenever(it.visibility).thenReturn(android.view.View.VISIBLE)
+        }
+        bridge.setInputControlsView(view)
+        RandomAccessFile(folder.newFile(), "rw").use { file ->
+            file.setLength(64)
+            val memory = file.channel.map(FileChannel.MapMode.READ_WRITE, 0, 64).apply { order(ByteOrder.LITTLE_ENDIAN) }
+            WinHandler::class.java.getDeclaredField("gamepadBuffer").apply { isAccessible = true; set(bridge, memory) }
+            val state = GamepadState().apply { setPressed(0, true) }
+            bridge.sendVirtualGamepadState(state)
+            assertEquals(1, memory.getInt(40))
+            bridge.beginAssistantControllerReconnect()
+            assertEquals(0, memory.getInt(40))
+            bridge.sendVirtualGamepadState(state)
+            assertEquals(0, memory.getInt(40)) // Incoming input cannot prematurely reconnect the device.
+            bridge.finishAssistantControllerReconnect()
+            assertEquals(1, memory.getInt(40))
+            assertEquals(0, memory.get(16).toInt())
+            assertFalse(bridge.assistantControllerStatus.getBoolean("reconnecting"))
+        }
+    }
 
     @Test fun physicalButtonIsTracedThroughRealProfileMappingAndSharedMemoryWrite() {
         val app = ApplicationProvider.getApplicationContext<Application>()

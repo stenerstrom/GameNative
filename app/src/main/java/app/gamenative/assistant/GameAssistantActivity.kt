@@ -241,6 +241,22 @@ class GameAssistantViewModel @JvmOverloads constructor(
         refreshDiagnostics()
         recordAction("Ändringarna har sparats. Starta spelet på nytt för att testa. Ångra finns kvar efter appomstart.")
     }
+    fun applyLive(preview: ControllerLiveTransactions.Preview) = action("Provar kontrollbryggan live…") {
+        check(state.value.includeDiagnostics && preview.game == state.value.game)
+        check(LiveControllerChanges.preview(state.value.game, requireNotNull(state.value.proposal)) == preview) {
+            "Förslaget eller bryggan ändrades. Granska läget igen."
+        }
+        LiveControllerChanges.apply(preview)
+        recordAction("Bryggans liveförsök: ${preview.after.describe()}. Gäller nästa äldre kontrollförfrågan till bryggan. SDL:s startval och sparade inställningar är oförändrade. Testa om spelet reagerar; Ångra liveförsök finns i panelen.")
+    }
+    fun restoreLive() = action("Ångrar liveförsöket…") {
+        LiveControllerChanges.restore(state.value.game)
+        recordAction("Kontrollbryggans tidigare läge har återställts för denna omgång. Inga sparade inställningar ändrades.")
+    }
+    fun reconnectController() = action("Återansluter kontrollbryggan…") {
+        LiveControllerChanges.reconnect(state.value.game)
+        recordAction("Kontrollbryggan har fått en kort frånkoppling och ny anslutningsstatus. Spelet kör vidare. Detta bekräftar inte att spelet upptäckt kontrollen; stäng panelen och prova knapparna.")
+    }
     fun applyFile() = action("Säkerhetskopierar och sparar filändringen…") {
         check(state.value.includeDiagnostics && state.value.fileAccess) { "Filåtkomst är avstängd" }
         val preview = requireNotNull(state.value.fileProposal) { "Inget granskat filförslag finns" }

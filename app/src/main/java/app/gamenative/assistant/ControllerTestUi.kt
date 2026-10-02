@@ -62,6 +62,13 @@ internal fun ControllerTestButton(model: GameAssistantViewModel) {
         Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Felsök kontrollen", style = MaterialTheme.typography.titleLarge)
+            OutlinedButton(onClick = {
+                ControllerTestUi.detailsGame = null
+                model.reconnectController()
+            }, enabled = !state.busy, modifier = Modifier.testTag("controller-reconnect")) {
+                Text("Återanslut kontrollbryggan")
+            }
+            Text("Prova utan att starta om: bryggan kopplas från kort och ansluts igen. Ändrar inga sparade inställningar. Spelet måste stödja återanslutning; SDL:s API-val ändras inte.", style = MaterialTheme.typography.bodySmall)
             if (result != null) {
                 Text("Senaste testet", style = MaterialTheme.typography.titleMedium)
                 Text("Android: ${result.androidSamples} prover\nValda profilmappningar: ${result.mappedSamples}\nSkrivningar till Wine-bryggan: ${result.wineSamples}")

@@ -112,7 +112,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     Text(state.status, Modifier.widthIn(max = 800.dp).fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
                 }
                 if (inGame && (state.proposal != null || state.fileProposal != null || state.modProposal != null || state.backup)) item {
-                    Text("Stäng spelet och öppna assistenten från biblioteket för att ändra eller återställa. Be om ett nytt förslag där; chatthistoriken följer med.", style = MaterialTheme.typography.bodySmall)
+                    Text("Permanenta inställnings-, fil- och modändringar kräver stoppat spel. Stödda försök i kontrollbryggan kan provas live nedan.", style = MaterialTheme.typography.bodySmall)
                 }
                 state.proposal?.let { proposal -> item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
@@ -120,7 +120,9 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             Text("Föreslagna ändringar", style = MaterialTheme.typography.titleMedium)
                             (state.proposalChanges.ifEmpty { proposal.changes() }).forEach { Text(it) }
                             AssistantText(proposal.reason)
-                            Text("Stäng spelet först. En säkerhetskopia skapas innan inställningarna sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
+                            if (inGame) LiveControllerProposal(model, proposal)
+                            Text(if (inGame) "För att spara inställningar till framtida spelstarter: stäng spelet och granska förslaget från biblioteket. Liveförsöket ovan sparar inget."
+                                else "Stäng spelet först. En säkerhetskopia skapas innan inställningarna sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = model::apply, enabled = !inGame && !state.busy && !state.backup) { Text("Tillämpa") }
                                 TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
@@ -176,8 +178,9 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 if (state.backup) item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(if (state.restoreRequested) "Återställ senaste ändringen?" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
-                            Text("Testa i spelet. Ångra om det blir sämre, eller behåll ändringen innan nästa försök.", style = MaterialTheme.typography.bodySmall)
+                            Text(if (state.restoreRequested) "Återställ senaste ändringen?" else if (inGame) "Sparad ändring med säkerhetskopia" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
+                            Text(if (inGame) "Den här återställningen kräver stoppat spel. Du kan ändå göra ett separat liveförsök i kontrollbryggan."
+                                else "Testa i spelet. Ångra om det blir sämre, eller behåll ändringen innan nästa försök.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = model::restore, enabled = !state.busy && !inGame) { Text("Ångra ändring") }
                                 TextButton(onClick = { keepConfirmation = true }, enabled = !state.busy && !inGame) { Text("Behåll") }

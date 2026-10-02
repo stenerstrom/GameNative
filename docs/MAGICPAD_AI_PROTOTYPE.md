@@ -4,6 +4,36 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: kontrollförsök utan omstart
+
+**1.2.1-ai-dev.10**, Android `versionCode=30`, ersätter den generella spärren med separata liveförsök för kontrollbryggan. Den tidigare sparade konfigurationens säkerhetskopia kan finnas kvar samtidigt. Permanent konfigurations-, fil- och modskrivning kräver fortfarande stoppat spel.
+
+### Varför vissa XInput-val behöver omstart
+
+GameNative använder `inputType` på flera ställen. `setupXEnvironment` skickar bland annat `SDL_XINPUT_ENABLED`, `SDL_DIRECTINPUT_ENABLED` och `SDL_JOYSTICK_HIDAPI` till den nya spelprocessen. Att ändra en Java-egenskap i appen efteråt skriver inte om den redan startade processens miljö eller kontroller som den redan öppnat. Steam Inputs startkonfiguration och laddade komponenter har liknande begränsningar.
+
+`WinHandler` har samtidigt API- och mapperinställningar som läses när dess äldre UDP-protokoll får `GET_GAMEPAD`. Dessa kan ändras i minnet under körning. **Prova bryggan live** använder denna möjlighet, men gör inget anspråk på att ändra SDL eller få effekt i ett spel som inte frågar den bryggan igen. `inspect_controllers` visar aktuell bryggstatus, antal äldre upptäcktsförfrågningar och den separata liveåterställningen. En bryggskrivning eller ändrad egenskap är fortfarande inget kvitto från PC-spelet.
+
+### Prova på MagicPad
+
+1. Stäng spelet och uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.10-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-30/GameNative-AI-Dev-1.2.1-ai-dev.10.apk) ovanpå AI Dev. Samma paket och signerare; avinstallera inte.
+2. Starta Dark Souls och välj **Quick Menu → Codex i spelet → Kontrolltest → Återanslut kontrollbryggan**. Den kopplas virtuellt från i ungefär 350 ms och återansluts. Spelet fortsätter; ingen AI-fråga eller sparad inställningsändring görs. Stäng panelen och prova kontrollen. Spelet/gästen behöver stödja återanslutning.
+3. Med spelåtkomst på, skriv exempelvis: ”Undersök aktuell kontrollbrygga och föreslå ett separat liveförsök med XInput. Behåll min sparade ångrapunkt.” Ett förslag med **bara** kontroll-API och/eller DirectInput-mappare får en **Prova bryggan live**-knapp om den aktiva bryggan har ett annat läge. Blandade förslag med SDL, Steam Input eller andra inställningar måste delas upp; bara att spara deras JSON vore ingen fungerande liveändring.
+4. Tryck **Prova bryggan live**, stäng panelen och testa samma knappar. **Ångra liveförsök** i panelens överkant återställer bryggans tidigare läge direkt. Befintlig sparad säkerhetskopia och konfigurationsfil ska vara identiska före/efter. Flera liveförsök behåller det ursprungliga läget som återställningspunkt.
+5. Gör ett nytt 20-sekunders kontrolltest för nytt underlag. Om spelet använder SDL-startvalen eller håller kvar en redan öppnad kontroll kan en spelomstart fortfarande behövas. Ändra inte fler startinställningar på chans mellan varje prov. Liveförsöket sparas inte och försvinner när spelomgången avslutas; ett lyckat försök kan senare sparas via ett nytt granskat förslag med spelet stoppat.
+
+### Rättning och återställning
+
+Den äldre `GET_GAMEPAD`-grenen hade lägen som inte motsvarade enum-namnen: `XINPUT` kunde neka XInput och `BOTH` nekade DirectInput. Besluten är nu explicita: `XINPUT` tillåter XInput, `DINPUT` tillåter DirectInput, `BOTH` tillåter båda och `AUTO` undviker dubbel exponering efter att samma process frågat efter XInput. Processhistoriken töms vid byte av API. SDL-koden ändras inte av denna rättning. Det är inte känt om detta var orsaken till Dark Souls-problemet på användarens enhet.
+
+Liveförsök använder före/efter-värden och launch-token. Föråldrade förslag och en annan spelomgång avvisas. Ångra skriver inte över ett läge som ändrats utanför assistenten. Ett delvis misslyckat skrivförsök försöker återställa föregående läge. Ingen fil eller beständig konfigurationsbackup berörs. Återanslutning sänker buffertens anslutningsflagga, hindrar inmatningsskrivningar från att återansluta för tidigt och uppdaterar aktuell anslutning igen även om användaren avbryter åtgärden; en ny spelomgång berörs inte av den gamla åtgärdens städning.
+
+### Verifiering
+
+**219 tester godkända, inga fel eller överhoppade tester.** Nya tester kör riktiga `WinHandler.handleRequest`-svar för samtliga API-lägen och ett lägesbyte på samma handler, inklusive mapperbytet. Minnesfiltestet verifierar frånkoppling, spärrad förtida återskrivning och neutral återansluten kontrollstatus. Transaktionstester täcker direkt ångra, flera försök, blandade/otillåtna inställningar, annan spelomgång, manuell ändring, delvis fel och avbruten återanslutning. Compose-tester i både liggande och stående läge kör agentförslag → liveförsök → liveångra → återanslutning, med oförändrade konfigurations- och backupbytes och utan fler AI-anrop vid lokala åtgärder. Befintliga tester för assistent, kontroller och konfiguration körs också. Byggkommando och miljö är samma som i avsnittet för ai-dev.9 nedan; paketeringsskriptet kontrollerar versionskod och signatur.
+
+Tester med JNI-shadow ersätter native-laddning/väckning; den riktiga Wine-gästen och en fysisk kontroll körs inte i testmiljön. Modellsvar är simulerade. Test på MagicPad återstår för virtuell hotplug, återanslutning i Dark Souls, faktisk användning av äldre UDP kontra SDL, korrekt knapprespons, in-place-uppdatering och live-modellanalys. Lokal verifiering sparas i `build/ai-dev/verification/live-controller-changes/`.
+
 ## Uppdatering 2026-10-02: kontrolltest under spel
 
 **1.2.1-ai-dev.9**, Android `versionCode=29`, ger assistenten underlag för att felsöka att ingen input når spelet. Kontrollen testas under vanlig spelkörning; inget debug run krävs. Detta löser inte i sig ett ännu okänt fel på den fysiska enheten.

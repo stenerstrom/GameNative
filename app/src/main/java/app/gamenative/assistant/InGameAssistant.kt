@@ -112,6 +112,7 @@ internal fun LiveSessionBanner(game: String, model: GameAssistantViewModel) {
                 Text("Analys när du frågar med spelåtkomst.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 ControllerTestButton(model)
             }
+            LiveControllerUndo(model)
             if (live?.paused == true) TextButton(onClick = {
                 if (LiveGameSession.view(game)?.paused == true && SteamService.keepAlive && PluviaApp.isOverlayPaused) {
                     PluviaApp.xEnvironment?.let {

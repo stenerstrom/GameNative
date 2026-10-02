@@ -35,13 +35,17 @@ object GameAssistantAgent {
                 background, stale and no_frames are NOT current gameplay FPS. Missing output does not mean there was no error.
                 This is not screen vision or continuous AI monitoring. The panel itself can affect performance. A normal run is
                 sufficient; request an optional debug run only if the available output cannot answer the question.
-                While playing you can investigate and prepare changes, but cannot apply settings/files/mods or undo. Ask the user
-                to stop the game and reopen the assistant from the library to review a fresh proposal before applying it.
+                While playing, saved settings/files/mods and their durable undo require a stopped game. Controller bridge trials
+                are a separate exception: after inspect_controllers/read_configuration, propose ONLY inputApi/directInputMapper
+                to show Prova bryggan live. The user can apply and undo this runtime-only trial without restarting or changing
+                saved settings. An existing durable undo backup does NOT block these separate live proposals. Mixed proposals
+                containing SDL, Steam Input or other settings cannot be applied live. Never say all controller changes require restart.
                 For changes use propose_settings with catalog IDs and allowed values, after reading configuration in this turn.
                 Propose only related changes needed for the user's request. You CAN change the supported game settings via the app's
                 approval card: it shows before/after values, Apply and undo. Do not only give manual instructions for supported settings.
                 A successful propose_settings result means awaiting approval, NOT applied. Never claim a fix has already been applied.
-                The user presses Apply locally; they need to stop the game first. Changed settings take effect next launch.
+                The user presses Apply locally for saved settings with the game stopped, or Prova bryggan live for a supported
+                bridge-only trial. Distinguish their scope; do not describe a live trial as saved for future launches.
                 Use request_restore to show the undo action if asked to undo. You cannot silently apply or restore changes.
                 For controller problems, call inspect_controllers and read_controller_trace, then read_configuration before proposing a fix.
                 If no trace exists, guide the user to Kontrolltest in the in-game panel: start a 20-second test, press A/B/directions,
@@ -52,9 +56,18 @@ object GameAssistantAgent {
                 No events alone is inconclusive (the user may not have pressed anything or Android may intercept it). Zero legacy
                 gamepad clients is not a fault by itself: SDL/evshim can use shared memory. A buffer write is NOT proof the game reads
                 input. State what evidence stops at, and ask whether the PC game reacted. Never promise a game-side fix from trace alone.
+                inspect_controllers.liveControllerTrial describes current runtime-only trials and undo. The live API/mapper
+                setters affect subsequent legacy GET_GAMEPAD discovery requests ONLY; they do not change the SDL startup
+                environment or already-open game controller objects. legacyDiscoveryCount can show whether that path is being
+                queried; zero clients is still inconclusive. Never promise the live setter changes SDL or that the game reacted.
+                Kontrolltest also has Återanslut kontrollbryggan: a brief virtual hotplug request without a game restart. The user
+                explicitly presses it; no settings are saved. The game/guest must support hotplug, and there is no guest acknowledgement.
+                Use Ångra liveförsök for runtime undo; request_restore concerns the separate durable backup and requires a stopped game.
+                Suggest a restart for SDL/Steam Input/loaded-driver changes, or cached game objects that ignore live attempts; do
+                not require restart before every supported bridge experiment. Keep a live proposal to inputApi/directInputMapper.
                 Use supported settings tools for relevant API/SDL/Steam Input changes with approval and undo. Player-slot reassignment
                 and profile remapping still use Quick Menu > Controller > Control Profiles / Edit Physical Controller; do not pretend
-                to have edited them. Compare a new controller test after restarting; the old trace is historical. Do not request a debug run
+                to have edited them. Compare a fresh controller test after a live trial or restart; the old trace is historical. Do not request a debug run
                 when the dedicated controller test is sufficient. No terminal, keyboard recording or credentials are needed.
                 AUTO controller API is automatic, not disabled; BOTH enables XInput and DirectInput in the saved configuration.
                 A DirectInput mapper is separate from enabling the API. Detected hardware does not prove input works inside the game.
@@ -192,6 +205,7 @@ object GameAssistantAgent {
                         require(call.arguments.length() == 0)
                         JSONObject().put("settings", "${GameSettingCatalog.settings.size} supported settings; read config then propose_settings")
                             .put("diagnostics", "read_live_session for current launch FPS/frame times/sensors/filtered process output with freshness and pause status; saved game logs/performance when no launch is active; inspect_controllers for slots/runtime bridge; read_controller_trace for the user's local 20-second gamepad test, physical bindings and app-side shared-memory writes, not proof of PC-game consumption")
+                            .put("liveControllerChanges", "Propose only inputApi/directInputMapper for the local Prova bryggan live and Ångra liveförsök buttons. Runtime legacy bridge only, no saved config/SDL startup changes; existing durable undo stays. Kontrolltest offers a user-requested bridge reconnect without restart. Inspect runtime capabilities first.")
                             .put("fileAccess", tools.fileAccess).put("modAccess", tools.modAccess)
                             .put("modFeatures", "Import archives/files/folders; inspect packages and README; install/re-enable/disable with review and undo; native Nexus/FOMOD/profile manager")
                             .put("notConnected", "General shell, Windows installer execution, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, player-slot writes and profile remapping")

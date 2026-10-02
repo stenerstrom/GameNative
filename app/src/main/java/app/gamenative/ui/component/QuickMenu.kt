@@ -401,6 +401,7 @@ fun QuickMenu(
     immersiveHooks: app.gamenative.ui.screen.xr.ImmersiveSessionHooks? = null,
     modifier: Modifier = Modifier,
 ) {
+    if (immersiveHooks == null) app.gamenative.assistant.InGameAssistantHost(container?.id)
     val immersiveControls = immersiveHooks?.controls
     val isPerformanceHudEnabled = performance.hudEnabled
     val performanceHudConfig = performance.hudConfig
@@ -790,6 +791,8 @@ fun QuickMenu(
                         )
                         QuickMenuCloseButton(onClick = onDismiss)
                     }
+
+                    if (immersiveHooks == null) app.gamenative.assistant.AssistantQuickMenuButton(container?.id, onDismiss)
 
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),

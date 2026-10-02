@@ -670,7 +670,7 @@ fun XServerScreen(
     var fpsLimiterEnabled by rememberSaveable(container.id) { mutableStateOf(initialFpsLimiterEnabled(container)) }
     var fpsLimiterTarget by rememberSaveable(container.id) { mutableIntStateOf(initialFpsLimiterTarget(container)) }
 
-    val gyroOverlaySuppressed = showQuickMenu || keepPausedForEditor || showElementEditor ||
+    val gyroOverlaySuppressed = app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) || showQuickMenu || keepPausedForEditor || showElementEditor ||
         physicalControllerDialogMode != PHYSICAL_CONTROLLER_DIALOG_NONE ||
         showTouchGestureDialog || showShooterModeDialog ||
         showPlayingBlockedDialog || isEditMode
@@ -1082,11 +1082,11 @@ fun XServerScreen(
     }
 
     val tryCapturePointer: () -> Boolean = {
-        if (!showElementEditor && !keepPausedForEditor && !showQuickMenu && !isEditMode &&
+        if (!app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) && !showElementEditor && !keepPausedForEditor && !showQuickMenu && !isEditMode &&
             !container.isTouchscreenMode) {
             PluviaApp.touchpadView?.postDelayed({
                 val view = PluviaApp.touchpadView
-                if (view != null) {
+                if (view != null && !app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) {
                     view.requestFocus()
                     view.requestPointerCapture()
                 }
@@ -1205,7 +1205,7 @@ fun XServerScreen(
         if (!keyboardRequestedFromOverlay) {
             imeInputReceiver?.hideKeyboard()
         }
-        shouldForceResumeOnMenuClose = keyboardRequestedFromOverlay && manualResumeMode && !keepPausedForEditor
+        shouldForceResumeOnMenuClose = (keyboardRequestedFromOverlay || app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) && manualResumeMode && !keepPausedForEditor
         keyboardRequestedFromOverlay = false
         showQuickMenu = false
     }
@@ -1528,6 +1528,10 @@ fun XServerScreen(
     }
 
     val gameBack: () -> Unit = gameBack@{
+        if (app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) {
+            app.gamenative.assistant.InGameAssistantUi.close(appId)
+            return@gameBack
+        }
         val imeVisible = ViewCompat.getRootWindowInsets(view)
             ?.isVisible(WindowInsetsCompat.Type.ime()) == true
 
@@ -1671,7 +1675,9 @@ fun XServerScreen(
                 !keepPausedForEditor
         // logD("onKeyEvent(${it.event.device.sources})\n\tisGamepad: $isGamepad\n\tisKeyboard: $isKeyboard\n\t${it.event}")
 
-        if (waitingForManualResume) {
+        if (app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) {
+            false // The dialog owns keyboard/gamepad input, including when the game is suspended.
+        } else if (waitingForManualResume) {
             when (it.event.keyCode) {
                 KeyEvent.KEYCODE_ENTER,
                 KeyEvent.KEYCODE_BUTTON_A,
@@ -1754,7 +1760,8 @@ fun XServerScreen(
     val onMotionEvent: (AndroidEvent.MotionEvent) -> Boolean = {
         val isGamepad = ExternalController.isGameController(it.event?.device)
 
-        if ((showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode) && isGamepad) {
+        if (app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId) ||
+            ((showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode) && isGamepad)) {
             // Let Compose consume any gamepad motion while menu is visible.
             false
         } else {
@@ -3034,7 +3041,8 @@ fun XServerScreen(
             )
         }
 
-        if (manualResumeMode && PluviaApp.isOverlayPaused && !showQuickMenu && !keepPausedForEditor) {
+        if (manualResumeMode && PluviaApp.isOverlayPaused && !showQuickMenu && !keepPausedForEditor &&
+            !app.gamenative.assistant.InGameAssistantUi.isOpenFor(appId)) {
             ManualResumeOverlay(onResume = ::resumeFromManualButton, immersive = immersiveHooks != null)
         }
     }
@@ -4025,6 +4033,7 @@ private fun setupXEnvironment(
     }
 
     ProcessHelper.removeAllDebugCallbacks()
+    app.gamenative.assistant.LiveGameSession.begin(appId, debugRun)
     // read user preferences
     val enableWineDebug = PrefManager.enableWineDebug
     val enableBox86Logs = WinlatorPrefManager.getBoolean("enable_box86_64_logs", false)

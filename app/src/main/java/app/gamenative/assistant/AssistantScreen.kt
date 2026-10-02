@@ -33,7 +33,7 @@ import app.gamenative.mods.LocalModSourceType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit) {
+fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit, inGame: Boolean = false) {
     val state by model.state.collectAsState()
     val context = LocalContext.current
     val selected = state.accounts.accounts.firstOrNull { it.id == state.accounts.selected }
@@ -54,10 +54,10 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Tillbaka") }
+                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, if (inGame) "Tillbaka till spelet" else "Tillbaka") }
                 Column(Modifier.weight(1f)) {
                     Text(state.gameTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                    Text("Spelassistent · ${state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "ChatGPT"}",
+                    Text("${if (inGame) "Codex i spelet" else "Spelassistent"} · ${state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "ChatGPT"}",
                         style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
                 Box {
@@ -65,21 +65,22 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Konto och modell") }, onClick = { menu = false; sheet = "account" })
                         DropdownMenuItem(text = { Text("Spelåtkomst och verktyg") }, onClick = { menu = false; sheet = "access" })
-                        DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, enabled = !state.busy, onClick = { menu = false; modLibrary = true })
+                        DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, enabled = !state.busy && !inGame, onClick = { menu = false; modLibrary = true })
                         DropdownMenuItem(text = { Text("Ny chatt") }, enabled = !state.busy, onClick = { menu = false; newChatConfirmation = true })
-                        DropdownMenuItem(text = { Text("Appuppdateringar") }, enabled = !state.busy, onClick = {
+                        DropdownMenuItem(text = { Text("Appuppdateringar") }, enabled = !state.busy && !inGame, onClick = {
                             menu = false; context.startActivity(Intent(context, AiDevUpdateActivity::class.java))
                         })
                     }
                 }
             }
             HorizontalDivider()
+            if (inGame) LiveSessionBanner(state.game)
             LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 if (state.history.isEmpty()) item {
                     Column(Modifier.widthIn(max = 800.dp).fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Vad vill du få ordning på?", style = MaterialTheme.typography.headlineSmall)
-                        Text("Beskriv problemet. Jag kan undersöka spelet och förbereda ändringar som du godkänner här.")
+                        Text(if (inGame) "Beskriv vad som händer just nu. Jag kan läsa mätvärden och tillgänglig logg medan spelet körs. Stäng panelen för att fortsätta spela." else "Beskriv problemet. Jag kan undersöka spelet och förbereda ändringar som du godkänner här.")
                         listOf("Spelet hackar – hjälp mig nå stabila 30 FPS", "Min handkontroll fungerar inte", "Spelet startar inte", "Granska mina moddar").forEach { prompt ->
                             OutlinedButton(onClick = { model.prompt(prompt) }, enabled = !state.busy) { Text(prompt) }
                         }
@@ -110,6 +111,9 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 if (!state.busy && state.status.isNotBlank()) item {
                     Text(state.status, Modifier.widthIn(max = 800.dp).fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
                 }
+                if (inGame && (state.proposal != null || state.fileProposal != null || state.modProposal != null || state.backup)) item {
+                    Text("Stäng spelet och öppna assistenten från biblioteket för att ändra eller återställa. Be om ett nytt förslag där; chatthistoriken följer med.", style = MaterialTheme.typography.bodySmall)
+                }
                 state.proposal?.let { proposal -> item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -118,7 +122,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             AssistantText(proposal.reason)
                             Text("Stäng spelet först. En säkerhetskopia skapas innan inställningarna sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = model::apply, enabled = !state.busy && !state.backup) { Text("Tillämpa") }
+                                Button(onClick = model::apply, enabled = !inGame && !state.busy && !state.backup) { Text("Tillämpa") }
                                 TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
                             }
                         }
@@ -140,7 +144,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             }
                             Text("Stäng spelet först. Originalfilen säkerhetskopieras innan ändringen sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = model::applyFile, enabled = !state.busy && !state.backup) { Text("Tillämpa filändring") }
+                                Button(onClick = model::applyFile, enabled = !inGame && !state.busy && !state.backup) { Text("Tillämpa filändring") }
                                 TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
                             }
                         }
@@ -163,7 +167,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             }
                             Text("Stäng spelet först. Ångra ändring finns kvar efter omstart. Spelets kompatibilitet är inte verifierad.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { model.applyMod(loaderApproved) }, enabled = !state.busy && !state.backup && (!proposal.needsLoaderApproval || loaderApproved)) { Text("Tillämpa modändring") }
+                                Button(onClick = { model.applyMod(loaderApproved) }, enabled = !inGame && !state.busy && !state.backup && (!proposal.needsLoaderApproval || loaderApproved)) { Text("Tillämpa modändring") }
                                 TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
                             }
                         }
@@ -175,8 +179,8 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             Text(if (state.restoreRequested) "Återställ senaste ändringen?" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
                             Text("Testa i spelet. Ångra om det blir sämre, eller behåll ändringen innan nästa försök.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = model::restore, enabled = !state.busy) { Text("Ångra ändring") }
-                                TextButton(onClick = { keepConfirmation = true }, enabled = !state.busy) { Text("Behåll") }
+                                OutlinedButton(onClick = model::restore, enabled = !state.busy && !inGame) { Text("Ångra ändring") }
+                                TextButton(onClick = { keepConfirmation = true }, enabled = !state.busy && !inGame) { Text("Behåll") }
                             }
                         }
                     }
@@ -196,7 +200,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         }
                     }
                     Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.padding(bottom = 4.dp)) {
+                        if (!inGame) Box(Modifier.padding(bottom = 4.dp)) {
                             IconButton(onClick = { if (state.includeDiagnostics && state.modAccess) attachments = true else sheet = "access" }, enabled = !state.busy) {
                                 Icon(Icons.Default.Add, "Lägg till mod")
                             }
@@ -242,7 +246,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 Text("Om inloggningsfliken ligger kvar efter godkännande: använd Androids Tillbaka och kontrollera anslutningen här.", style = MaterialTheme.typography.bodySmall)
             } else {
                 Text("Spelåtkomst", style = MaterialTheme.typography.titleLarge)
-                Text("Låt assistenten själv läsa detta spels inställningar, tillgängliga logg och prestandadata samt upptäckta handkontroller när den behöver dem. Informationen filtreras och skickas till OpenAI med din fråga.")
+                Text("Låt assistenten själv läsa detta spels inställningar, tillgängliga logg och prestandadata (även från pågående spelomgång) samt upptäckta handkontroller när den behöver dem. Informationen filtreras och skickas till OpenAI med din fråga.")
                 Text("Alla ändringar visas för godkännande. Ingen debug run behövs för att börja. Hemlighetsfiltreringen kan inte hitta varje känslig detalj.")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tillåt spelverktyg", Modifier.weight(1f))

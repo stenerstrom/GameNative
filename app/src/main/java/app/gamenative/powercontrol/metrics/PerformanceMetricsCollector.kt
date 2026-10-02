@@ -36,6 +36,7 @@ object PerformanceMetricsCollector {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var samplingJob: Job? = null
+    private var assistantSession: String? = null
 
     private val cpuSampler = CpuUsageSampler()
     private val gpuSampler = GpuUsageSampler()
@@ -80,10 +81,12 @@ object PerformanceMetricsCollector {
         )
 
         isRunning = true
+        val liveSession = app.gamenative.assistant.LiveGameSession.token()
+        assistantSession = liveSession
         samplingJob = scope.launch {
             while (isActive) {
                 if (!paused) {
-                    runCatching { sampleOnce() }
+                    runCatching { sampleOnce(liveSession) }
                         .onFailure { Timber.tag(TAG).e(it, "Sampling cycle failed") }
                 }
                 delay(SAMPLE_INTERVAL_MS)
@@ -107,6 +110,7 @@ object PerformanceMetricsCollector {
     fun pause() {
         if (!isRunning || paused) return
         paused = true
+        app.gamenative.assistant.LiveGameSession.collecting(assistantSession, false)
         Timber.tag(TAG).i("Collector paused")
     }
 
@@ -115,18 +119,20 @@ object PerformanceMetricsCollector {
         cpuSampler.reset()
         gpuSampler.reset()
         paused = false
+        app.gamenative.assistant.LiveGameSession.collecting(assistantSession, true)
         Timber.tag(TAG).i("Collector resumed")
     }
 
-    private fun sampleOnce() {
+    private fun sampleOnce(liveSession: String?) {
         val now = System.nanoTime()
         val frameCount = FrameTimeRing.copySince(now - FRAME_WINDOW_MS * 1_000_000L, frameScratch)
+        val frameStride = PowerManager.frameSampleStride
         val frameStats = computeFrameWindowStats(
             frameScratch,
             frameCount,
             slowFrameThresholdNs(),
             deltaScratch,
-            PowerManager.frameSampleStride,
+            frameStride,
         )
 
         val cpu = cpuSampler.sample()
@@ -148,6 +154,7 @@ object PerformanceMetricsCollector {
         )
 
         publish(snapshot)
+        app.gamenative.assistant.LiveGameSession.metrics(liveSession, snapshot, frameStride)
         runCatching { PowerTelemetry.record(snapshot) }
         appendLog(snapshot)
 

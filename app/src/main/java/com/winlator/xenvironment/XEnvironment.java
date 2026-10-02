@@ -26,6 +26,7 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
     private final Context context;
     private final ImageFs imageFs;
     private final ArrayList<EnvironmentComponent> components = new ArrayList<>();
+    private final String assistantSession = app.gamenative.assistant.LiveGameSession.token();
 
     private boolean winetricksRunning = false;
 
@@ -88,6 +89,7 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
     public void onPause() {
         // Pause game processes FIRST
         pauseGameProcesses();
+        app.gamenative.assistant.LiveGameSession.paused(assistantSession, true);
 
         // Then pause audio components
         PulseAudioComponent pulseAudioComponent = getComponent(PulseAudioComponent.class);
@@ -110,6 +112,7 @@ public class XEnvironment implements Iterable<EnvironmentComponent> {
 
         // Then resume game processes
         resumeGameProcesses();
+        app.gamenative.assistant.LiveGameSession.paused(assistantSession, false);
     }
 
     public void pauseGameProcesses() {

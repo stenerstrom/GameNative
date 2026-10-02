@@ -274,6 +274,7 @@ object PowerManager {
      */
     @Synchronized
     fun stop() {
+        app.gamenative.assistant.LiveGameSession.end()
         // Save the current profile if available, otherwise read from driver
         saveProfile()
         AdaptiveFpsCapController.stop()

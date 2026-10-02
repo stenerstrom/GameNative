@@ -70,6 +70,10 @@ class GameAssistantTools(private val context: Context, private val appId: String
         textFiles.prepare(proposal)
     }
     override suspend fun read(name: String): String {
+        if (name == "read_live_session") return LiveGameSession.read(appId)
+        if (name == "read_performance" || name == "read_game_log") {
+            LiveGameSession.view(appId)?.let { return it.json() }
+        }
         if (name == "inspect_controllers") return withContext(Dispatchers.Main) {
             val manager = com.winlator.inputcontrols.ControllerManager.getInstance()
             val devices = JSONArray()

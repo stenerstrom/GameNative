@@ -4,6 +4,37 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: assistenten under spel och livediagnostik
+
+**1.2.1-ai-dev.8**, Android `versionCode=28`, lägger till **Quick Menu → Codex i spelet** på alla snabbmenyflikar. Samma native-agent och officiella ChatGPT-anslutning används. Ingen separat dator, ny inloggningsmetod eller API-debitering tillkommer.
+
+### Prova på MagicPad
+
+1. Stäng spelet. Uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.8-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-28/GameNative-AI-Dev-1.2.1-ai-dev.8.apk) ovanpå AI Dev. Paket och signeringsnyckel är oförändrade; avinstallera inte.
+2. Starta ett spel normalt. Öppna snabbmenyn med Androids Tillbaka och välj **Codex i spelet** under rubriken. Spelet återupptas när menyn stängs, även vid manuell paus. På bred skärm ligger chatten till höger med spelet kvar bakom; på mindre skärm används hela bredden.
+3. Vid skrivfältet väljer du **Ge spelåtkomst** om det inte redan är aktiverat för detta spel/konto. Skriv ”Undersök varför spelet hackar just nu. Läs livedata och förklara vad du faktiskt kan se.” Mätaren uppdateras lokalt; modellen anropas när du skickar en fråga.
+4. Prova **Tillbaka till spelet**, fortsätt spela, öppna panelen igen och ställ en följdfråga. Konversationen följer med. Kontrollera att tangentbordet går att skriva i utan att spelet får tangenttryckningar och att fysisk handkontroll, mus och gyro åter fungerar när panelen stängts.
+5. Prova att växla till en annan app och tillbaka. Pausade, saknade eller gamla mätvärden ska inte visas som aktuella FPS. I manuell paus visas **Återuppta spelet**; efter återupptagning samlas nya bildtider under två sekunder.
+6. Inställningar, spelfiler och moddar får undersökas och ändringar förberedas, men **Tillämpa/Ångra** är spärrade medan spelet körs. Stäng spelet, öppna assistenten från biblioteket och be om ett nytt granskningsförslag. Historiken sparas, väntande åtgärder återskapas inte automatiskt. Modimport, modbibliotek och appuppdateringar görs från biblioteket.
+
+### Datakälla och begränsningar
+
+`read_live_session` är avgränsat till aktuell launch och valt app-ID. Det returnerar tidsstämplar, ålder/status, FPS, p50/p95/max-bildtid, långsamma bildrutor samt tillgängliga CPU/GPU-/temperaturvärden. Befintliga `read_performance` och `read_game_log` använder den aktuella spelomgången när den finns; äldre rapporter är bara reserv när spelet inte körs.
+
+Mätningen återanvänder `PerformanceMetricsCollector` och renderingskrokarna: ett prov per 500 ms över överlappande tvåsekundersfönster, högst 60 prover/30 sekunder i assistentens minnesbuffert. Paus, bakgrund, uppvärmning, avsaknad av bildrutor och äldre prover markeras; de är inte aktuella gameplay-FPS. CPU-data kan avse enheten och saknade sensorer förblir okända. Frame-generation-stride och om panelen var öppen följer med varje prov. Panelen kan själv påverka mätningen. Dessa observationer är inte en jämförbar före/efter-benchmark.
+
+Loggbufferten fångar befintlig `ProcessHelper`-stdout/stderr från just denna körning, inklusive Wine-/startverktyg, inte skärmbilden eller all Android-logcat. Högst 160 rader/24 000 tecken behålls, med begränsning av långa rader och loggstormar. Hemligheter filtreras före lagring i bufferten; privata nyckelblock filtreras även över flera rader. Varje producent har en sessionsnyckel så att sena svar från föregående körning avvisas. Bufferten töms vid avslut. Vanliga starter kan ha mycket lite loggutdata; vid behov kan ett separat debug run samla mer. Filtrering kan inte upptäcka alla privata uppgifter.
+
+`InGameAssistantHost` ligger utanför snabbmenyns animation och öppnar en Compose-dialog i samma aktivitet. Den startar inte en separat Activity och behöver ingen Android-behörighet för att visas över andra appar. Därmed utlöses inte appens ordinarie bakgrundspaus bara av att öppna chatten. Befintlig spelåtkomst krävs för att skicka diagnostik till modellen. Ingen extra mätinsamling, automatiska modellrundor i bakgrunden, skärmbildsläsning eller godtycklig live-minnes-/filpatchning införs. XR-panelen ingår inte.
+
+### Verifiering och bygge
+
+Bygg med `./tools/build-ai-dev.sh` och samma JDK/Android-miljö som nedan. Tester: `:app:testModernDebugUnitTest -PaiDev=true --tests 'app.gamenative.assistant.*' --tests 'app.gamenative.ui.component.FpsLimiterUtilsTest' --tests 'app.gamenative.ui.component.dialog.ContainerConfigDialogContainerUpdateTest'`.
+
+**174 tester godkända, inga fel eller överhoppade tester.** Lokala JVM-/Robolectric-tester täcker normal körning utan sparad debugrapport, sessions-/spelisolation, hemlighetsfiltrering och buffertgränser, paus/återupptagning/bakgrund/gamla prover, agentens verktygssvar, sidopanelens öppning/stängning, fortsatt RESUMED-aktivitet, chattens återöppning och blockerad konfigurationsskrivning under spel. Compose-layouten kontrolleras i liggande 1280×800 dp och stående 600×960 dp. Modellsvar och mätvärden simuleras i dessa tester. Befintliga assistent-, fil-, mod-, inloggnings-, uppdaterings-, FPS- och konfigurationstester körs också.
+
+Fysisk MagicPad återstår för riktig Wine/GL/Vulkan-rendering medan dialogen är öppen, faktisk mätdata, ett live-modellsvar, Androids IME/tillbaka, fysisk handkontroll/mus/gyro, samt installation ovanpå föregående APK. Tidigare lyckad ChatGPT-verifiering på enheten är inte verifiering av dessa nya funktioner. Test- och byggresultat sparas lokalt i `build/ai-dev/verification/live-in-game/`.
+
 ## Uppdatering 2026-10-02: modhantering från chatten
 
 **1.2.1-ai-dev.7**, Android `versionCode=27`, kopplar agenten till GameNatives befintliga modmotor. Ingen ytterligare AI-tjänst eller debitering tillkommer. Detta är fortfarande en native-agent med egna verktyg via den redan anslutna ChatGPT-planen, inte en Codex app-server eller generell datormiljö på Android.

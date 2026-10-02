@@ -12,6 +12,13 @@ class GameAssistantAgentTest {
         val reads = mutableListOf<String>()
         var prepared: ConfigProposal? = null
         var backup = false
+        override var fileAccess = false
+        var filePrepared = false
+        override suspend fun readFileTool(name: String, arguments: JSONObject): String { reads += name; return "{}" }
+        override suspend fun prepareFile(proposal: FileEditProposal): GameTextFiles.Preview {
+            filePrepared = true
+            return GameTextFiles.Preview("Spelmapp/settings.ini", "- FPS=60\n+ FPS=30", proposal.reason)
+        }
         override suspend fun read(name: String): String { reads += name; return "{\"inputApi\":\"DINPUT\"}" }
         override suspend fun prepare(proposal: ConfigProposal): List<String> { prepared = proposal; return proposal.changes() }
         override fun hasBackup() = backup
@@ -22,6 +29,42 @@ class GameAssistantAgentTest {
         return AssistantProtocol.completedResponse(JSONObject().put("status", "completed").put("output", JSONArray().put(item)))
     }
     private val proposal = """{"changes":[{"setting":"inputApi","value":"BOTH"},{"setting":"sdlControllerAPI","value":"true"}],"reason":"Test controller routing"}"""
+    private val fileEdit = """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b","replacements":[{"old_text":"FPS=60","new_text":"FPS=30"}],"reason":"Test FPS cap"}"""
+
+    @Test fun fileToolsAreOnlyAdvertisedAndDispatchedWithSeparatePermission() = runBlocking {
+        val tools = Tools()
+        assertFalse(GameAssistantAgent.request("m", "help", emptyList()).getJSONArray("tools").toString().contains("list_game_files"))
+        var step = 0
+        val reply = GameAssistantAgent.run("m", "help", emptyList(), tools, { request ->
+            if (step++ == 0) call("propose_file_edit", fileEdit) else {
+                assertTrue(request.getJSONArray("input").toString().contains("File access is disabled"))
+                AssistantProtocol.Reply("Enable file access", null)
+            }
+        }, {})
+        assertFalse(tools.filePrepared)
+        assertNull(reply.fileProposal)
+    }
+
+    @Test fun fileEditsStageOnlyOneActionAndRequireCompletedFinalResponse() = runBlocking {
+        val tools = Tools().apply { fileAccess = true }
+        val replies = ArrayDeque(listOf(call("list_game_files", """{"query":"settings"}"""),
+            call("read_game_file", """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b"}"""),
+            call("propose_file_edit", fileEdit), call("read_configuration"), AssistantProtocol.Reply("Review the file edit", null)))
+        var lastRequest: JSONObject? = null
+        val reply = GameAssistantAgent.run("m", "edit fps", emptyList(), tools, { request ->
+            lastRequest = JSONObject(request.toString()); replies.removeFirst()
+        }, {})
+        assertTrue(lastRequest!!.getJSONArray("tools").toString().contains("list_game_files"))
+        assertTrue(lastRequest!!.getJSONArray("input").toString().contains("an action is already awaiting approval"))
+        assertEquals(listOf("list_game_files", "read_game_file"), tools.reads)
+        assertEquals("Spelmapp/settings.ini", reply.fileProposal!!.path)
+        assertNull(reply.proposal)
+        assertFalse(reply.restoreRequested)
+        var step = 0
+        assertTrue(runCatching { GameAssistantAgent.run("m", "edit", emptyList(), tools, {
+            if (step++ == 0) call("propose_file_edit", fileEdit) else error("response.failed")
+        }, {}) }.isFailure)
+    }
 
     @Test fun investigatesThenStagesProposalAndFeedsMatchingResultsBackBeforeFinalAnswer() = runBlocking {
         val tools = Tools()

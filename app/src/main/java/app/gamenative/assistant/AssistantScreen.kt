@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -37,7 +38,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
     var keepConfirmation by remember { mutableStateOf(false) }
     var newChatConfirmation by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
-    LaunchedEffect(state.history.size, state.busy, state.proposal, state.restoreRequested) {
+    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.restoreRequested) {
         withFrameNanos { }
         scroll.animateScrollToItem((scroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
     }
@@ -113,10 +114,32 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         }
                     }
                 } }
+                state.fileProposal?.let { proposal -> item {
+                    Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Föreslagen filändring", style = MaterialTheme.typography.titleMedium)
+                            Text(proposal.path, style = MaterialTheme.typography.labelLarge)
+                            AssistantText(proposal.reason)
+                            Text("− tas bort · + läggs till", style = MaterialTheme.typography.bodySmall)
+                            Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = MaterialTheme.shapes.small) {
+                                SelectionContainer {
+                                    Text(proposal.diff, Modifier.fillMaxWidth().heightIn(max = 240.dp)
+                                        .verticalScroll(rememberScrollState()).padding(12.dp), fontFamily = FontFamily.Monospace,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                            Text("Stäng spelet först. Originalfilen säkerhetskopieras innan ändringen sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = model::applyFile, enabled = !state.busy && !state.backup) { Text("Tillämpa filändring") }
+                                TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
+                            }
+                        }
+                    }
+                } }
                 if (state.backup) item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(if (state.restoreRequested) "Återställ tidigare inställningar?" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
+                            Text(if (state.restoreRequested) "Återställ senaste ändringen?" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
                             Text("Testa i spelet. Ångra om det blir sämre, eller behåll ändringen innan nästa försök.", style = MaterialTheme.typography.bodySmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = model::restore, enabled = !state.busy) { Text("Ångra ändring") }
@@ -134,7 +157,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     } else {
                         Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { sheet = "access" }, enabled = !state.busy) {
-                                Text(if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
+                                Text(if (state.includeDiagnostics && state.fileAccess) "Spel- och filåtkomst på" else if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
                             }
                             if (!state.includeDiagnostics) Text("eller chatta utan verktyg", style = MaterialTheme.typography.bodySmall)
                         }
@@ -179,11 +202,19 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 Text("Alla ändringar visas för godkännande. Ingen debug run behövs för att börja. Hemlighetsfiltreringen kan inte hitta varje känslig detalj.")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tillåt spelverktyg", Modifier.weight(1f))
-                    Switch(checked = state.includeDiagnostics, onCheckedChange = model::attachDiagnostics, enabled = !state.busy)
+                    Switch(checked = state.includeDiagnostics, onCheckedChange = model::attachDiagnostics, enabled = !state.busy,
+                        modifier = Modifier.testTag("game-access"))
                 }
                 Text("Kan ändra ${GameSettingCatalog.settings.size} spelinställningar", style = MaterialTheme.typography.titleMedium)
                 Text("Kontroller och touch, FPS-gräns och upplösning, ljud, Box64-profil, skärmläge och pausinställningar.")
-                Text("Drivrutinsinstallation, godtyckliga filer, Bluetooth-parning och inställningar inne i PC-spelet är ännu inte kopplade till verktyg.", style = MaterialTheme.typography.bodySmall)
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tillåt spelfiler", Modifier.weight(1f))
+                    Switch(checked = state.fileAccess, onCheckedChange = model::allowFiles, enabled = !state.busy && state.includeDiagnostics,
+                        modifier = Modifier.testTag("file-access"))
+                }
+                Text("Läser och föreslår ändringar i befintliga INI-, CFG-, CONF-, JSON-, XML-, TOML- och PROPERTIES-filer i spelets mapp och privata Wine-användarmappar. Filinnehåll filtreras och skickas till OpenAI. Varje ändring visas med diff och kräver Tillämpa; originalfilen kan återställas.", style = MaterialTheme.typography.bodySmall)
+                Text("Högst 128 KiB/48 000 tecken per fil. Modpaket, DLL/EXE, skript, sparfiler och länkade mappar ingår inte. Drivrutinsinstallation, Bluetooth-parning och styrning av PC-spelets menyer saknar fortfarande verktyg.", style = MaterialTheme.typography.bodySmall)
                 Text("De senaste åtta utbytena sparas krypterat per spel och konto på denna enhet. Ny chatt rensar dem. Råloggar och väntande ändringar sparas inte i chatthistoriken, men svar kan innehålla uppgifter från tidigare diagnostik.", style = MaterialTheme.typography.bodySmall)
             }
             Button(onClick = { sheet = null }, modifier = Modifier.fillMaxWidth()) { Text("Klart") }

@@ -16,4 +16,13 @@ object DiagnosticRedactor {
                 .replace(bearer, "Bearer [redacted]").replace(jwt, "[redacted token]")
                 .replace(apiKey, "[redacted key]")).replace(email, "[redacted email]")
         }
+
+    /** A guessed substring must not let a file edit modify a line/block hidden from the model. */
+    fun isEditableSpan(value: String, start: Int, end: Int): Boolean {
+        if (privateKey.findAll(value).any { start <= it.range.last && end > it.range.first }) return false
+        val lineStart = if (start == 0) 0 else value.lastIndexOf('\n', start - 1) + 1
+        val lineEnd = value.indexOf('\n', end - 1).let { if (it < 0) value.length else it }
+        val affectedLines = value.substring(lineStart, lineEnd)
+        return text(affectedLines) == affectedLines
+    }
 }

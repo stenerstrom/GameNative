@@ -170,10 +170,11 @@ object AssistantProtocol {
 
     data class ToolCall(val id: String, val name: String, val arguments: JSONObject)
     data class Reply(val text: String, val proposal: ConfigProposal?, val toolCall: ToolCall? = null,
-        val output: JSONArray = JSONArray(), val restoreRequested: Boolean = false)
+        val output: JSONArray = JSONArray(), val restoreRequested: Boolean = false, val fileProposal: GameTextFiles.Preview? = null)
 
     fun conversationTurn(prompt: String, reply: Reply): ChatTurn {
-        val summary = reply.proposal?.let { "\nProposed experiment for user review (not applied by this response): ${it.changes().joinToString("; ")}. ${it.reason}" }.orEmpty()
+        val summary = reply.proposal?.let { "\nProposed experiment for user review (not applied by this response): ${it.changes().joinToString("; ")}. ${it.reason}" }.orEmpty() +
+            reply.fileProposal?.let { "\nProposed file edit for user review (not applied by this response): ${it.path}. ${it.reason}" }.orEmpty()
         return ChatTurn(DiagnosticRedactor.text(prompt).take(4000), DiagnosticRedactor.text(reply.text + summary).take(HISTORY_REPLY_CHARS),
             DiagnosticRedactor.text(reply.text).take(HISTORY_REPLY_CHARS))
     }

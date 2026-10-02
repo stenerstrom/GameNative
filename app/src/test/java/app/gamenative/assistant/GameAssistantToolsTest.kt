@@ -9,6 +9,8 @@ import app.gamenative.utils.DebugReportUtils
 import com.winlator.container.Container
 import com.winlator.xenvironment.ImageFs
 import java.io.File
+import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Before
@@ -195,5 +197,48 @@ class GameAssistantToolsTest {
 
     @Test fun rejectsTraversalGameIdentifier() {
         assertTrue(runCatching { GameAssistantTools(context, "../other") }.isFailure)
+    }
+
+    @Test fun discoversOnlyThisGamesPrivateWineFilesAndAppliesWithStoppedGameAndSharedUndo() = runBlocking {
+        val directory = File(ImageFs.find(context).rootDir, "home/xuser-$game/.wine/drive_c/users/steamuser/Documents")
+            .apply { mkdirs() }
+        val file = File(directory, "settings.ini").apply { writeText("FPS=60\r\n") }
+        val other = File(ImageFs.find(context).rootDir, "home/xuser-STEAM_99/.wine/drive_c/users/steamuser/Documents")
+            .apply { mkdirs() }
+        File(other, "other.ini").writeText("private other game")
+        Files.createSymbolicLink(File(directory, "linked").toPath(), other.toPath())
+        val tools = GameAssistantTools(context, game)
+        assertTrue(runCatching { tools.readFileTool("list_game_files", JSONObject().put("query", "")) }.isFailure)
+        tools.fileAccess = true
+        val listed = JSONObject(tools.readFileTool("list_game_files", JSONObject().put("query", ""))).getJSONArray("files")
+        assertEquals(1, listed.length())
+        val id = listed.getJSONObject(0).getString("file_id")
+        assertTrue(tools.readFileTool("read_game_file", JSONObject().put("file_id", id)).contains("FPS=60"))
+        tools.prepareFile(FileEditProposal(id, listOf(TextReplacement("FPS=60", "FPS=30")), "test"))
+        SteamService.keepAlive = true
+        try { assertTrue(runCatching { tools.applyFile() }.isFailure) } finally { SteamService.keepAlive = false }
+        assertFalse(tools.hasBackup())
+        tools.applyFile()
+        assertTrue(tools.hasBackup())
+        assertEquals("FPS=30\r\n", file.readText())
+        assertTrue(runCatching { tools.applyValidated(ConfigProposal(40, null, "test"), tools.readDiagnostics().hash) }.isFailure)
+        // Undo remains available without file permission after opening a new instance.
+        GameAssistantTools(context, game).restore()
+        assertEquals("FPS=60\r\n", file.readText())
+        assertFalse(tools.hasBackup())
+        tools.applyValidated(ConfigProposal(30, null, "test"), tools.readDiagnostics().hash)
+        assertTrue(runCatching { tools.prepareFile(FileEditProposal(id, listOf(TextReplacement("FPS=60", "FPS=30")), "test")) }.isFailure)
+        tools.restore()
+    }
+
+    @Test fun discoveryNeverCreatesWineUserOrFollowsDocumentsOutsidePrefix() {
+        val prefix = File(app.gamenative.mods.ModContainerResolver.getWinePrefix(context, game))
+        assertTrue(GameFileRoots.discover(context, game).isEmpty())
+        assertFalse(prefix.exists())
+        val user = File(prefix, "drive_c/users/steamuser").apply { mkdirs() }
+        val shared = File(context.filesDir, "shared").apply { mkdirs() }
+        File(shared, "private.ini").writeText("private")
+        Files.createSymbolicLink(File(user, "Documents").toPath(), shared.toPath())
+        assertTrue(GameFileRoots.discover(context, game).isEmpty())
     }
 }

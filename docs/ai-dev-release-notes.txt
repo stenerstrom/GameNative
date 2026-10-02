@@ -1,12 +1,12 @@
-GameNative AI Dev 1.2.1-ai-dev.5 – spelagent och enklare chatt
+GameNative AI Dev 1.2.1-ai-dev.6 – ändra spelets textfiler från chatten
 
-• Ny chatt med fast skrivfält, spelets namn och konto/modell/uppdateringar under ⋮. Diagnostikformuläret behövs inte längre.
-• Ge spelåtkomst en gång per spel/konto. Agenten kan därefter själv läsa konfiguration, spellogg, prestandadata och upptäckta handkontroller. Du ser vad den undersöker.
-• 20 inställningar: kontroller/touch, FPS/upplösning, ljud, Box64-profil, presentation, DRI3, skärmläge och pauspolicy.
-• Ändringskort visar gamla och nya värden. Tillämpa skapar backup först. Ångra ändring återställer. Behåll avslutar försöket inför nästa ändring.
-• Krypterad chatthistorik per spel och konto. Ny chatt rensar historiken. Ingen debug run behövs för att prata eller undersöka konfigurationen.
-• Native Android-agent med officiell ChatGPT-abonnemangsanslutning; ingen separat dator eller API-nyckel. Detta är inte en installerad Codex app-server.
+• Nytt val under Spelåtkomst: Tillåt spelfiler. Filåtkomst är avstängd från början och sparas per spel/konto.
+• Assistenten kan hitta och läsa befintliga INI-, CFG-, CONF-, JSON-, XML-, TOML- och PROPERTIES-filer i spelets mapp och privata Wine-användarmappar. Ingen debug run behövs.
+• Skriv exempelvis: ”Läs spelets grafikinställningar och föreslå en ändring till 30 FPS om spelet stöder det.” Agenten kan även föreslå textändringar i en redan installerad mods konfiguration.
+• Ett kort visar filnamn, skäl och exakt textdiff. Tillämpa filändring säkerhetskopierar originalet först. Ångra ändring fungerar även efter appomstart. Behåll avslutar försöket inför nästa ändring.
+• Ändrade filer och konflikter avvisas. Windows-radbrytningar, UTF-8 och BOM-märkt UTF-16 bevaras. Hemligheter filtreras före AI-anrop; filtrerade rader/block kan inte ändras.
+• Samma ChatGPT-abonnemangsanslutning och samma enkla chatt som i ai-dev.5. Ingen separat API-debitering eller dator behövs vid användning.
 
-Uppdatera via App updates i ai-dev.4 eller installera APK:n ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata. Samma paket/signeringsnyckel, högre versionskod 25. Stäng spelet före installation.
+Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata. Samma paket/signeringsnyckel, högre versionskod 26. Stäng spelet före installation och filändringar.
 
-Drivrutinsinstallation, godtycklig filredigering, Bluetooth-parning och PC-spelets egna inställningsmenyer ingår inte. Verktygsflöde, UI, sparade inställningar och återställning testas lokalt; nya modellsteg och faktisk spel-/kontrollfunktion kräver test på MagicPad. Ingen FPS-förbättring utlovas.
+Första filversionen ändrar en befintlig textfil åt gången, högst 128 KiB/48 000 tecken och 1–4 textbyten. DLL/EXE, modarkiv, skript, sparfiler, nya/raderade filer och länkade mappar ingår inte. Ändringarna måste fortfarande stödjas av spelet; inga FPS-förbättringar utlovas. Lokala tester verifierar verktyg, chattkort, tillämpning och återställning. Riktiga modellval, Androids lagringsbehörigheter och spelets beteende behöver provas på MagicPad.

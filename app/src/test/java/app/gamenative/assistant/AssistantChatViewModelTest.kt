@@ -47,6 +47,65 @@ class AssistantChatViewModelTest {
         assertTrue(Container(game).apply { setRootDir(root); screenSize = "1920x1080" }.saveDataChecked())
     }
     private fun send(model: GameAssistantViewModel, text: String) { model.prompt(text); model.send(); idle(model) }
+    private fun gameFile(): File = File(ImageFs.find(app).rootDir,
+        "home/xuser-$game/.wine/drive_c/users/steamuser/Documents/settings.ini").apply {
+        parentFile!!.mkdirs(); writeText("[Graphics]\r\nFPS=60\r\n")
+    }
+
+    @Test fun fileConversationNeedsSeparateOptInAndAppliesReviewedEditWithUndoAfterReopening() {
+        SteamService.keepAlive = false
+        val file = gameFile() // No container config/log is necessary for editing this game's own INI.
+        val original = file.readBytes()
+        val model = opened()
+        model.attachDiagnostics(true); idle(model)
+        assertFalse(model.state.value.fileAccess)
+        model.allowFiles(true); idle(model)
+        provider.editGameFile = true
+        send(model, "Ändra spelets FPS till 30")
+        assertNotNull(model.state.value.fileProposal)
+        assertNull(model.state.value.proposal)
+        assertArrayEquals(original, file.readBytes())
+        assertFalse(model.state.value.backup)
+        assertTrue(model.state.value.fileProposal!!.diff.contains("+ FPS=30"))
+        model.applyFile(); idle(model)
+        assertEquals("[Graphics]\r\nFPS=30\r\n", file.readText())
+        assertNull(model.state.value.fileProposal)
+        assertTrue(model.state.value.backup)
+        val reopened = opened()
+        assertTrue(reopened.state.value.fileAccess)
+        assertTrue(reopened.state.value.backup)
+        assertNull(reopened.state.value.fileProposal)
+        reopened.attachDiagnostics(false); idle(reopened)
+        assertFalse(reopened.state.value.fileAccess)
+        reopened.restore(); idle(reopened)
+        assertArrayEquals(original, file.readBytes())
+        assertFalse(reopened.state.value.backup)
+    }
+
+    @Test fun filePermissionAndPreviewDoNotLeakAcrossAccountsAndFailedFinalCannotBeApplied() {
+        SteamService.keepAlive = false
+        val file = gameFile()
+        val original = file.readBytes()
+        val model = opened()
+        model.attachDiagnostics(true); idle(model)
+        model.allowFiles(true); idle(model)
+        provider.editGameFile = true
+        send(model, "Test file")
+        assertNotNull(model.state.value.fileProposal)
+        model.select("second"); idle(model)
+        assertFalse(model.state.value.fileAccess)
+        assertNull(model.state.value.fileProposal)
+        model.select("first"); idle(model)
+        assertTrue(model.state.value.fileAccess)
+        assertNull(model.state.value.fileProposal)
+        provider.fileFinalFailure = true
+        send(model, "Try again")
+        assertNull(model.state.value.fileProposal)
+        assertFalse(model.state.value.verified)
+        model.applyFile(); idle(model)
+        assertArrayEquals(original, file.readBytes())
+        assertFalse(model.state.value.backup)
+    }
 
     @Test fun reopensConnectedAccountAndSendsWithoutAContainerLogOrDiagnostics() {
         val model = opened()
@@ -196,6 +255,8 @@ class AssistantChatViewModelTest {
         val calls = mutableListOf<Call>()
         val agentRequests = mutableListOf<org.json.JSONObject>()
         var agentProposal: org.json.JSONObject? = null
+        var editGameFile = false
+        var fileFinalFailure = false
         override suspend fun accounts() = ChatGptProvider.Accounts(listOf("first", "second").map { ChatGptProvider.Account(it, it, true, true) }, selected)
         override suspend fun select(id: String) { selected = id }
         override suspend fun signIn(existingId: String?, openBrowser: suspend (String) -> Unit) = Unit
@@ -216,6 +277,16 @@ class AssistantChatViewModelTest {
             agentRequests += org.json.JSONObject(request.toString())
             val input = request.getJSONArray("input")
             val outputs = (0 until input.length()).map { input.getJSONObject(it) }.filter { it.optString("type") == "function_call_output" }
+            if (editGameFile) {
+                if (outputs.isEmpty()) return tool("list_game_files", org.json.JSONObject().put("query", "settings.ini"))
+                val id = org.json.JSONObject(outputs[0].getString("output")).getJSONArray("files").getJSONObject(0).getString("file_id")
+                if (outputs.size == 1) return tool("read_game_file", org.json.JSONObject().put("file_id", id))
+                if (outputs.size == 2) return tool("propose_file_edit", org.json.JSONObject().put("file_id", id)
+                    .put("replacements", org.json.JSONArray().put(org.json.JSONObject().put("old_text", "FPS=60").put("new_text", "FPS=30")))
+                    .put("reason", "Test FPS cap"))
+                check(!fileFinalFailure) { "response.failed" }
+                return reply
+            }
             if (outputs.isEmpty()) return tool("read_configuration", org.json.JSONObject())
             if (outputs.size == 1 && agentProposal != null) return tool("propose_settings", agentProposal!!)
             return reply

@@ -24,8 +24,22 @@ class GameAssistantTools(private val context: Context, private val appId: String
     var preparedChanges: List<String> = emptyList()
         private set
     private var inspectedHash: String? = null
+    override var fileAccess: Boolean = false
+    private val textFiles = GameTextFiles({ GameFileRoots.discover(context, appId) },
+        File(context.noBackupFilesDir, "assistant/file-undo/$appId.json"))
 
-    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList() }
+    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn() }
+    override suspend fun readFileTool(name: String, arguments: JSONObject): String = withContext(Dispatchers.IO) {
+        check(fileAccess) { "File access is disabled" }
+        val key = when (name) { "list_game_files" -> "query"; "read_game_file" -> "file_id"; else -> error("Unsupported file tool") }
+        require(arguments.keys().asSequence().toSet() == setOf(key) && arguments.get(key) is String) { "Invalid file tool arguments" }
+        if (name == "list_game_files") textFiles.list(arguments.getString(key)) else textFiles.read(arguments.getString(key))
+    }
+    override suspend fun prepareFile(proposal: FileEditProposal): GameTextFiles.Preview = withContext(Dispatchers.IO) {
+        check(fileAccess) { "File access is disabled" }
+        check(!hasBackup()) { "Restore or keep the previous change first" }
+        textFiles.prepare(proposal)
+    }
     override suspend fun read(name: String): String {
         if (name == "inspect_controllers") return withContext(Dispatchers.Main) {
             val manager = com.winlator.inputcontrols.ControllerManager.getInstance()
@@ -112,21 +126,39 @@ class GameAssistantTools(private val context: Context, private val appId: String
     }
 
     private val backupFile: File get() = File(context.noBackupFilesDir, "assistant/undo/$appId.json")
-    override fun hasBackup(): Boolean = backupFile.isFile
-    fun keepChanges() { checkStopped(); transaction().keep() }
-    fun applyValidated(proposal: ConfigProposal, snapshotHash: String) {
-        checkStopped()
-        transaction().apply(snapshotHash, proposal)
+    override fun hasBackup(): Boolean = backupFile.isFile || textFiles.hasBackup()
+    fun hasFileBackup(): Boolean = textFiles.hasBackup()
+    fun keepChanges() = synchronized(changeLock) {
+        checkStopped(); checkSingleBackup()
+        if (hasFileBackup()) textFiles.keep() else transaction().keep()
     }
-    fun restore() {
+    fun applyValidated(proposal: ConfigProposal, snapshotHash: String) {
+        synchronized(changeLock) {
+            checkStopped()
+            check(!hasBackup()) { "Restore or keep the previous change first" }
+            transaction().apply(snapshotHash, proposal)
+        }
+    }
+    fun applyFile() = synchronized(changeLock) {
+        check(fileAccess) { "File access is disabled" }
         checkStopped()
-        transaction().restore()
+        check(!hasBackup()) { "Restore or keep the previous change first" }
+        textFiles.apply()
+    }
+    fun restore() = synchronized(changeLock) {
+        checkStopped(); checkSingleBackup()
+        if (hasFileBackup()) textFiles.restore() else transaction().restore()
+    }
+    private fun checkSingleBackup() {
+        check(!(backupFile.isFile && textFiles.hasBackup())) { "Conflicting undo records; both backups are retained" }
     }
     private fun checkStopped() {
-        check(!SteamService.keepAlive) { "Stop the game/container before changing or restoring settings" }
+        check(!SteamService.keepAlive) { "Stop the game/container before changing or restoring settings/files" }
     }
     private fun transaction(): ConfigTransaction = ConfigTransaction(ContainerUtils.getContainer(context, appId).configFile,
         backupFile)
+
+    companion object { private val changeLock = Any() }
 
     private fun readPerformance(report: File): Any = runCatching {
         val source = JSONObject(readSmall(DebugReportUtils.perfFile(report), 2_000_000))

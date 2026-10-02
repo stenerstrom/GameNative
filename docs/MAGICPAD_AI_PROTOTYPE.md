@@ -4,6 +4,45 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: ändra spelets textfiler i chatten
+
+**1.2.1-ai-dev.6**, Android `versionCode=26`, lägger till riktiga filverktyg i den befintliga native-agenten. Exempel: läsa spelets grafik-INI och föreslå en exakt inställningsändring, eller ändra konfigurationen för en redan installerad mod. Ingen debug run, API-nyckel eller separat dator behövs vid användning. Detta installerar inte en Codex app-server.
+
+### Användning på MagicPad
+
+1. Stäng spelet. Uppdatera via **⋮ → Appuppdateringar** eller installera [ai-dev.6-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-26/GameNative-AI-Dev-1.2.1-ai-dev.6.apk) ovanpå AI Dev. Samma paket och signerare; avinstallera inte och rensa inte appdata.
+2. Öppna spelets assistent → **Spelåtkomst**. Slå på **Tillåt spelverktyg** och **Tillåt spelfiler**, läs beskrivningen och välj **Klart**. Den nya filbehörigheten är avstängd även för användare som redan beviljat spelåtkomst. Den sparas separat per spel/konto.
+3. Skriv exempelvis: ”Läs spelets grafikinställningar och föreslå en ändring till 30 FPS om spelet stöder det.” För en installerad mod kan du ange dess konfigurationsfil och vad du vill ändra. Assistenten hittar filen själv i tillgängliga mappar.
+4. Kortet **Föreslagen filändring** visar filens relativa sökväg, skäl och exakta borttagna/tillagda textrader. Tryck **Tillämpa filändring** eller **Avstå**. Appen kräver stoppad spelcontainer, kontrollerar originalet igen och säkerhetskopierar det innan skrivning.
+5. Starta spelet och kontrollera att inställningen används. Stäng spelet och välj **Ångra ändring** för att återställa originalfilen, även efter appomstart. **Behåll** tar bort återställningspunkten efter bekräftelse och tillåter nästa försök.
+6. Prova omstart av appen, avstängd filåtkomst och kontobyte. Ett väntande förslag ska inte återkomma från historiken eller flyttas till ett annat konto. Ångra en redan tillämpad ändring går även när filåtkomst har stängts av.
+
+Om spelet skriver om samma fil efter testkörningen avvisas återställningen och backup behålls. Ingen automatisk överskrivning eller sammanfogning görs. Den senaste filbackupen ligger privat i `noBackupFilesDir/assistant/file-undo/<appId>.json`; konfigurationsbackupen är fortsatt kompatibel med tidigare versioner. En backup totalt per spel gäller för både containerinställningar och textfiler. Hemlighetsfiltrering kan inte identifiera all känslig information.
+
+### Filverktyg och avgränsning
+
+| Verktyg | Verklig funktion |
+| --- | --- |
+| `list_game_files` | Söker i GameNatives registrerade spelmapp och befintliga privata Wine-mappar för det valda spelet. Returnerar lokalt utfärdade fil-ID:n, relativa namn och storlekar. Modellen får inga valfria sökvägar. |
+| `read_game_file` | Läser en listad fil, filtrerar hemligheter och binder originalets bytes till aktuell tur. Råfiler och verktygsresultat sparas inte i chatthistoriken. |
+| `propose_file_edit` | Förbereder 1–4 exakta, unika, icke överlappande textbyten i en läst fil. Appen genererar diffen. Resultatet är ett förslag; endast användarens knapp kan skriva. |
+
+`GameFileRoots` återanvänder butikernas installationsmetadata och `ModContainerResolver` för spelets Wine-prefix. Den anropar inte containerfunktioner som skapar eller migrerar data. `GameTextFiles` återanvänder modhanteringens `ModTargetResolver` för Windows-sökvägar och tvetydiga filnamn. Befintlig modhantering för arkiv/DLL:er är fortfarande separat från AI-verktygen.
+
+Stödda befintliga filer: **INI, CFG, CONF, JSON, XML, TOML och PROPERTIES**, högst **128 KiB och 48 000 tecken**. UTF-8 med/utan BOM samt BOM-märkt UTF-16 LE/BE stöds. Oförändrade bytes, BOM, Windows-radbrytningar och blandade oförändrade radslut bevaras. JSON och XML kontrolleras för syntax; andra format kräver att modellen väljer rätt inställningar. Inget generellt syntaxtest bevisar att ett spel stöder eller följer inställningen.
+
+Sökningen har gränser: 5 000 poster, 8 undermappsnivåer och 60 träffar. Ett avkortat resultat markeras för modellen. Symboliska länkar (även Wine Documents-länkar till delad Android-lagring), dolda mappar, kända spar-/cachemappar och sökvägar som ser ut att innehålla inloggningsdata utesluts. Det kan innebära att en viss konfiguration inte kan nås i denna version. Binärer, DLL/EXE, arkivinstallation, skript, nya/raderade filer, generella textkodningar och automatiska upprepade optimeringstester ingår inte.
+
+Hash/byte-kontroll krävs efter läsning och före skrivning. Backup skrivs atomiskt i privat lagring före atomiskt filbyte. Återställning kräver att filen fortfarande motsvarar den tillämpade versionen eller originalet; vid konflikt behålls backup. Kodningen och originalfilen återställs byte för byte. Textbyten får inte beröra filtrerade rader eller privata nyckelblock, även om modellen gissar deras innehåll. Inga filer ändras av ett misslyckat/avbrutet modellflöde. Väntande filförslag sparas inte över appomstart.
+
+### Verifiering för ai-dev.6
+
+**150 tester passerar, 0 fel, 0 överhoppade.** Filtesterna omfattar förhandsvisning utan skrivning, normal tillämpning, exakt återställning från ny instans, UTF-8/UTF-16/BOM/radslut, hemlighetsfiltrering, gissade privata textdelar, konflikter, utebliven backup-skrivning, dubbletter/överlapp, ogiltiga fil-ID:n, sökvägsbyte, symlinkbyte, storleksgränser, JSON/XML och XML-entiteter. Android-tester verifierar begränsade Wine-mappar, ingen skapad mapp vid läsning, stoppad container, gemensam backup, kontoisolering och separat filåtkomst. Ett Compose/Robolectric-test klickar genom chatt → diff → tillämpning → ångra mot en verklig temporär INI-fil. De tidigare auth-, ström-, uppdaterings-, inställnings- och FPS-testerna ingår också.
+
+Modellanrop simuleras i dessa tester; de bevisar inte modellens verkliga filval eller en speloptimering. Ingen fysisk MagicPad har använts för denna version. OEM-lagring/behörigheter, verkliga spelvägar och spelets beteende måste testas på enheten. Krypterad historik använder samma Android Keystore-lagring som ai-dev.5; historiktester injicerar en minneslagring. Ingen FPS-vinst har mätts eller utlovats.
+
+Byggning: samma instruktioner och `tools/build-ai-dev.sh` längre ned. APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.6.apk`. Paket `app.gamenative.aidev`, kod 26 och tidigare signerare är verifierade. SHA-256: `c5aed9ca45af92fff1b3ecf71fc283a17683f402910b4c24d541b04d6b94c25c`. Bygglogg: `build/ai-dev/verification/file-tools-final-build-tests.log`. Test-XML: `build/ai-dev/verification/file-tools/`. [Release ai-dev-26](https://github.com/stenerstrom/GameNative/releases/tag/ai-dev-26).
+
 ## Uppdatering 2026-10-02: en spelagent och en enklare chatt
 
 **1.2.1-ai-dev.5**, Android `versionCode=25`, ersätter formuläret med en chatt som har fast skrivfält längst ned, läsbara svar med fetstil/kod, spelets namn i toppen och konto/modell/uppdateringar under menyn **⋮**. Den gamla diagnostikpanelen, den obligatoriska manuella läsningen och den framträdande verifieringsknappen är borttagna från huvudflödet. Den senaste konversationen återöppnas för samma spel och anslutning.

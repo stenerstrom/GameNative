@@ -13,7 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 interface ConversationStore {
-    data class Saved(val history: List<AssistantProtocol.ChatTurn> = emptyList(), val gameAccess: Boolean = false)
+    data class Saved(val history: List<AssistantProtocol.ChatTurn> = emptyList(), val gameAccess: Boolean = false, val fileAccess: Boolean = false)
     fun load(game: String, account: String): Saved
     fun save(game: String, account: String, saved: Saved)
 }
@@ -46,7 +46,7 @@ class AssistantConversations(context: Context) : ConversationStore {
                 DiagnosticRedactor.text(turn.getString("assistant")).take(AssistantProtocol.HISTORY_REPLY_CHARS),
                 DiagnosticRedactor.text(turn.optString("displayText", turn.getString("assistant"))).take(AssistantProtocol.HISTORY_REPLY_CHARS))
         }
-        return ConversationStore.Saved(history, json.optBoolean("gameAccess", false))
+        return ConversationStore.Saved(history, json.optBoolean("gameAccess", false), json.optBoolean("fileAccess", false))
     }
     override fun save(game: String, account: String, saved: ConversationStore.Saved) {
         val turns = JSONArray()
@@ -56,7 +56,7 @@ class AssistantConversations(context: Context) : ConversationStore {
             .put("displayText", DiagnosticRedactor.text(it.displayText).take(AssistantProtocol.HISTORY_REPLY_CHARS))) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        val json = JSONObject().put("turns", turns).put("gameAccess", saved.gameAccess)
+        val json = JSONObject().put("turns", turns).put("gameAccess", saved.gameAccess).put("fileAccess", saved.fileAccess)
         ConfigTransaction.atomicWrite(file(game, account), cipher.iv + cipher.doFinal(json.toString().toByteArray()))
     }
 }

@@ -2,7 +2,21 @@
 
 Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da90ca8cc3cf8b29e21f9`.
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
-Kontrollerad dokumentation: 2026-10-01. Ingen `AGENTS.md` fanns i denna upstream-version.
+Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
+
+## Uppdatering 2026-10-02: modellista och svarsläsning
+
+Version **1.2.1-ai-dev.2** kan installeras som uppdatering över den första AI Dev-APK:n. Samma paket och signeringsnyckel används; avinstallera inte appen eller rensa dess data för uppdateringen. Versionsnumret visas högst upp i AI-vyn.
+
+Modellerna hämtas från `GET https://api.openai.com/v1/models` med den valda anslutningens token. Endast poster med `visibility: list` visas, i serverns ordning. Namnet hämtas från `display_name`, medan `slug` skickas vid inferens. Det finns ingen inbyggd modellista. Refresh models begär en ny nätverkshämtning och visar tidpunkt och valt modell-ID. Katalogen behöver inte vara samma som listan i Codex. Att en modell saknas är inte i sig bevis på att kontot saknar åtkomst till modellen i andra produkter; orsaken kräver server-/kontoinformation som denna miljö inte har.
+
+Enhetsbilden visade GPT-6 Astra och äldre modeller samt felet `The completed response was empty`. Den gamla parsern ignorerade all text före `response.completed`. Nya parsern behåller text-delta, färdig text och färdiga output-items, och använder dem när sluthändelsen inte upprepar output. En fylld terminal output har företräde och dubbleras inte. Verktygsargument från delhändelser blir aldrig ändringsförslag; det krävs ett helt färdigt item samt `response.completed`. Avbrott, failed och incomplete avvisas även om text redan har kommit. Verkligt tomma svar ger ett fel med antal händelser/delar och request-/response-ID, utan råtext eller credentials.
+
+Regressionsfallet är återskapat lokalt med syntetiska SSE-händelser. Det bevisar en brist i den gamla parsern, men råströmmen från surfplattan har inte inspekterats: rättningen måste fortfarande verifieras med **Verify AI access** på MagicPad. Modellkatalogen i sig bevisar inte lyckad inferens.
+
+Verifierat för denna uppdatering: den nya regressionssviten gav 6 fel av 12 tester före rättningen; efter rättningen passerar alla **84** utvalda tester (40 assistenttester och 44 befintliga FPS-/containertester). APK:n bygger, APK-signaturen verifieras och certifikatets SHA-256 är samma som i första APK:n. Paketet är fortfarande `app.gamenative.aidev`. Inga riktiga modell-anrop har gjorts från byggmiljön. Bygglogg och test-XML finns lokalt i `build/ai-dev/verification/stream-fix-build-tests.log` respektive `build/ai-dev/verification/stream-fix/`.
+
+Aktuell APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.2.apk`, även kopierad till den vanliga sökvägen `build/ai-dev/GameNative-AI-Dev.apk`. SHA-256: `c31b9993a6cf35022aee0154554677446af0599b8d6b583cb591c8fd46c8a052`.
 
 ## Vad som implementeras
 
@@ -31,7 +45,7 @@ Den valda vägen är native OAuth + Responses, inte Codex app-server. OpenAI bes
 - `store:false`, `stream:true`, array-formad input, instructions och namespacat function-verktyg. Ingen `temperature`, `max_output_tokens`, `previous_response_id`, hosted MCP eller tool search.
 - Ingen separat API-debitering och inget automatiskt byte av betalningsväg. Användaren styr appens abonnemangsandel och eventuella credits i ChatGPT → Settings → Usage.
 
-**Ditt konto är inte verifierat i den här arbetsmiljön.** Ingen enhet är ansluten och inget OAuth-samtycke har genomförts i denna Android-app. Ingen verklig AI-inferens har därför testats. Detta är inte ett konstaterande att kontot saknar behörighet. Appen visar HTTP-status, felkod och request-ID när ett riktigt försök blockeras.
+**AI-inferens är ännu inte verifierad på MagicPad.** Vid användarens enhetstest 2026-10-02 gick det att återvända från samtyckessidan och få en modellista i appen. Verify AI access visade däremot ett fel om tomt svar. Ingen fysisk enhet är ansluten till byggmiljön, så det verkliga svarets struktur har inte kunnat inspekteras här. Detta är inte ett konstaterande att kontot saknar behörighet. Appen visar HTTP-status, felkod och request-ID när servern returnerar ett fel.
 
 Vanliga konkreta hinder:
 
@@ -84,7 +98,7 @@ Flaggan `-PaiDev=true` aktiverar funktionen endast i debug-bygget:
 
 - Appnamn: **GameNative AI Dev**.
 - Paket-ID: **`app.gamenative.aidev`**.
-- Version: upstream-version med `-ai-dev`.
+- Version: upstream-version med `-ai-dev.2` i den aktuella utvecklingsversionen.
 - Kodnamespace förblir `app.gamenative`, så upstream/JNI-namn och klassreferenser behålls.
 - `FileProvider` och AndroidX Startup får unika authorities från applicationId.
 - Launcher-aliasarnas klassnamn fortsätter vara `app.gamenative.MainActivityAlias…`, men deras komponentpaket är utvecklingsappens; namn och label kontrolleras i sammanfogat manifest.
@@ -160,7 +174,7 @@ git rebase upstream/master
 
 Håll integrationen i `app/gamenative/assistant/`. De små övriga ändringarna gäller meny, byggflagga och paketoberoende sökvägar. Ändra inte namespace eller JNI-symboler bara för att applicationId har ett suffix. Upstreams ordinarie build utan `-PaiDev=true` behåller originalidentiteten och visar inte assistenten.
 
-## Faktiskt verifierat i denna session
+## Verifierat vid första bygget 2026-10-01
 
 | Kontroll | Resultat |
 | --- | --- |
@@ -177,7 +191,7 @@ Håll integrationen i `app/gamenative/assistant/`. De små övriga ändringarna 
 | Ansluten Android-enhet | `adb devices -l`: ingen ansluten. |
 | Verklig OAuth/AI-inferens, Keystore på fysisk enhet, UI-layout, installation bredvid originalet, butikernas inloggningar, native spelkörning och FPS-förbättring | **Inte testat på enhet**. Kräver MagicPad-teststegen ovan. Ingen lyckad kontobehörighet eller prestandavinst påstås. |
 
-APK SHA-256:
+Den första APK:ns SHA-256 (den aktuella finns i `build/ai-dev/SHA256SUMS`):
 
 ```text
 f212fdacff54b6bc8212778296639818a4c9490dee9444cba66c669906bb522c

@@ -10,6 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.CacheControl
 import okhttp3.Callback
 import okhttp3.Response
 import java.io.IOException
@@ -94,7 +95,8 @@ class ChatGptProvider(context: Context) : GameAiProvider {
 
     suspend fun models(): List<Model> = io {
         val token = accessToken()
-        val json = jsonRequest(Request.Builder().url("$RESOURCE/models").header("Authorization", "Bearer $token").build())
+        val json = jsonRequest(Request.Builder().url("$RESOURCE/models").cacheControl(CacheControl.FORCE_NETWORK)
+            .header("Authorization", "Bearer $token").build())
         val models = json.getJSONArray("models")
         (0 until models.length()).map { models.getJSONObject(it) }.filter { it.optString("visibility") == "list" }
             .map { Model(it.getString("slug"), it.getString("display_name")) }
@@ -174,7 +176,7 @@ class ChatGptProvider(context: Context) : GameAiProvider {
                         response.use {
                             if (!it.isSuccessful) throw error(it.code, it.body?.string().orEmpty(), it.header("x-request-id"))
                             val source = it.body?.source() ?: error("Empty response")
-                            ResponsesStream.read(source) { json -> error(it.code, json.toString(), it.header("x-request-id")) }
+                            ResponsesStream.read(source, it.header("x-request-id")) { json -> error(it.code, json.toString(), it.header("x-request-id")) }
                         }
                     }
                     if (continuation.isActive) continuation.resumeWith(result)

@@ -149,7 +149,7 @@ class AssistantSafetyTest {
         reject { AssistantProtocol.completedResponse(response) }
     }
     @Test fun streamRequiresCompletedEventEvenAfterText() {
-        val partial = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Looks good\"}\n\n"
+        val partial = "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"item_id\":\"msg_test\",\"delta\":\"Looks good\"}\n\n"
         reject { ResponsesStream.read(Buffer().writeUtf8(partial)) { IllegalStateException("failed") } }
         reject { ResponsesStream.read(Buffer().writeUtf8(partial + "data: [DONE]\n\n")) { IllegalStateException("failed") } }
         val failed = partial + "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\"}}}\n\n"

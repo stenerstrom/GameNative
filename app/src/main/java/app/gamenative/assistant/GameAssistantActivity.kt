@@ -37,6 +37,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gamenative.BuildConfig
 import app.gamenative.ui.theme.PluviaTheme
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,6 +75,7 @@ data class AssistantUiState(
     val status: String = "",
     val accounts: ChatGptProvider.Accounts = ChatGptProvider.Accounts(emptyList(), null),
     val models: List<ChatGptProvider.Model> = emptyList(),
+    val modelsUpdatedAt: Long? = null,
     val selectedModel: String = "",
     val prompt: String = "Det här spelet hackar, hjälp mig att få stabila 30 FPS.",
     val diagnostics: String = "",
@@ -108,7 +111,7 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     fun cancel() { job?.cancel() }
 
     fun connect(newAccount: Boolean, openBrowser: (String) -> Unit) = action("Complete sign-in in the browser, then return here. Account eligibility has not been verified.") {
-        mutable.update { it.copy(verified = false, models = emptyList(), selectedModel = "", proposal = null) }
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null) }
         provider.signIn(if (newAccount) null else state.value.accounts.selected) { url -> withContext(Dispatchers.Main) { openBrowser(url) } }
         refreshAccounts()
         if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) {
@@ -118,7 +121,7 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
     fun select(id: String) = action("Selecting connection…") {
         provider.select(id)
-        mutable.update { it.copy(models = emptyList(), selectedModel = "", verified = false, proposal = null, answer = "") }
+        mutable.update { it.copy(models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, answer = "") }
         refreshAccounts()
         mutable.update { it.copy(status = "Connection selected. Refresh models and verify access.") }
     }
@@ -130,7 +133,7 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
     fun disconnect() = action("Signing out…") {
         val revoked = provider.signOut()
-        mutable.update { it.copy(verified = false, models = emptyList(), selectedModel = "", proposal = null, answer = "",
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, answer = "",
             status = if (revoked) "Signed out. Registration retained for reconnecting." else "Signed out locally. Remote revocation was not confirmed; disconnect this app in ChatGPT settings.") }
     }
     fun analyze() = action("Analyzing the reviewed configuration and log with your ChatGPT plan…") {
@@ -170,7 +173,9 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
     private suspend fun loadModels() {
         val models = provider.models()
-        mutable.update { it.copy(models = models, selectedModel = models.firstOrNull()?.slug.orEmpty(), verified = false, proposal = null) }
+        mutable.update { it.copy(models = models, modelsUpdatedAt = System.currentTimeMillis(),
+            selectedModel = it.selectedModel.takeIf { selected -> models.any { model -> model.slug == selected } } ?: models.firstOrNull()?.slug.orEmpty(),
+            verified = false, proposal = null) }
         check(models.isNotEmpty()) { "No models available for this connection" }
     }
     private fun action(message: String, block: suspend () -> Unit) {
@@ -202,7 +207,7 @@ private fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AI assistant · ${state.game}", style = MaterialTheme.typography.headlineSmall)
-            Text("GameNative AI Dev · experimental", style = MaterialTheme.typography.labelLarge)
+            Text("GameNative AI Dev · ${BuildConfig.VERSION_NAME} · experimental", style = MaterialTheme.typography.labelLarge)
             Text("${if (state.verified) "AI response verified" else "AI access not verified"} · ${if (selected?.planEnabled == true) "Using ChatGPT plan" else "ChatGPT plan permission not enabled"}")
             state.accounts.accounts.forEach { account ->
                 OutlinedButton(onClick = { model.select(account.id) }, enabled = !state.busy) {
@@ -214,11 +219,14 @@ private fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, 
             if (selected?.connected == true) TextButton(onClick = { model.disconnect() }, enabled = !state.busy) { Text("Sign out") }
             TextButton(onClick = { openBrowser(ChatGptProvider.USAGE_URL) }) { Text("Manage usage and app access") }
             OutlinedButton(onClick = { model.refreshModels() }, enabled = !state.busy && selected?.planEnabled == true) { Text("Refresh models") }
+            Text("Models supplied by OpenAI for this connection. This catalog can differ from the choices shown in ChatGPT or Codex.")
+            state.modelsUpdatedAt?.let { Text("Catalog fetched: ${DateFormat.getDateTimeInstance().format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
             state.models.forEach { available ->
                 TextButton(onClick = { model.model(available.slug) }, enabled = !state.busy) {
                     Text("${if (available.slug == state.selectedModel) "✓ " else ""}${available.name}")
                 }
             }
+            if (state.selectedModel.isNotBlank()) Text("Model ID: ${state.selectedModel}", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = { model.verify() }, enabled = !state.busy && state.selectedModel.isNotBlank()) { Text("Verify AI access") }
             if (state.busy) {
                 CircularProgressIndicator()

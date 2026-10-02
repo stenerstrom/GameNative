@@ -79,7 +79,7 @@ object AssistantProtocol {
 
     data class Reply(val text: String, val proposal: ConfigProposal?)
 
-    /** Only consume terminal output. Partial tool arguments must never become executable proposals. */
+    /** Called only after response.completed, with terminal or fully collected stream output. */
     fun completedResponse(response: JSONObject): Reply {
         require(response.optString("status") == "completed") { "The AI response did not complete" }
         val output = response.getJSONArray("output")
@@ -89,6 +89,7 @@ object AssistantProtocol {
             val item = output.getJSONObject(i)
             when (item.optString("type")) {
                 "message" -> {
+                    require(item.optString("status", "completed") == "completed" && item.optString("role", "assistant") == "assistant") { "Unfinished or invalid assistant message" }
                     val content = item.optJSONArray("content") ?: continue
                     for (j in 0 until content.length()) {
                         val part = content.getJSONObject(j)
@@ -96,6 +97,7 @@ object AssistantProtocol {
                     }
                 }
                 "function_call" -> {
+                    require(item.optString("status", "completed") == "completed") { "Unfinished tool call" }
                     require(proposal == null && item.optString("name") == "propose_configuration" && item.optString("namespace") == "game") {
                         "Unexpected tool call; no changes have been applied"
                     }
@@ -103,7 +105,7 @@ object AssistantProtocol {
                 }
             }
         }
-        require(messages.isNotEmpty() || proposal != null) { "The completed response was empty" }
+        require(messages.any { it.isNotBlank() } || proposal != null) { "The completed response contained no usable text or proposal" }
         return Reply(messages.joinToString("\n\n"), proposal)
     }
 }

@@ -686,6 +686,15 @@ class LibraryViewModel @Inject constructor(
 
     private val _importState = MutableStateFlow(CustomGameImportState())
     val importState: StateFlow<CustomGameImportState> = _importState.asStateFlow()
+    private var observedLocalFolders = PrefManager.customGameManualFolders
+
+    fun refreshLocalGamesIfChanged() {
+        val folders = PrefManager.customGameManualFolders
+        if (folders == observedLocalFolders) return
+        observedLocalFolders = folders
+        CustomGameScanner.invalidateCache()
+        onFilterApps(paginationCurrentPage)
+    }
 
     // Runs in viewModelScope so the copy survives configuration changes; a scope tied to the
     // composition would abort a "remove original" import partway through the move

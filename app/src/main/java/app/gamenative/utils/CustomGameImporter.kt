@@ -8,6 +8,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
+import java.util.Locale
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -28,6 +29,7 @@ object CustomGameImporter {
         context: Context,
         treeUri: Uri,
         deleteSource: Boolean,
+        destinationRoot: File = File(CustomGameScanner.importRootPath),
         onProgress: (Progress) -> Unit = {},
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -36,7 +38,7 @@ object CustomGameImporter {
                 return@withContext Result.failure(IllegalArgumentException("Selected item is not a folder"))
             }
 
-            val importRoot = CustomGameScanner.importRootPath
+            val importRoot = destinationRoot
             val name = sanitizeName(src.name)
             var dest = File(importRoot, name)
             var suffix = 1
@@ -44,7 +46,7 @@ object CustomGameImporter {
                 dest = File(importRoot, "$name ($suffix)")
                 suffix++
             }
-            dest.mkdirs()
+            check(dest.mkdirs()) { "Could not create import folder" }
 
             var copied = 0L
             moveTree(context, src, dest, deleteSource) { bytes, fileName ->
@@ -71,15 +73,20 @@ object CustomGameImporter {
         src: DocumentFile,
         dest: File,
         deleteSource: Boolean,
+        depth: Int = 0,
+        ancestors: Set<Uri> = emptySet(),
         onBytes: (Long, String) -> Unit,
     ) {
+        require(depth <= 64 && src.uri !in ancestors) { "Folder nesting is too deep or contains a cycle" }
+        val names = hashSetOf<String>()
         for (child in src.listFiles()) {
             coroutineContext.ensureActive()
             val childName = sanitizeName(child.name)
+            require(names.add(childName.lowercase(Locale.ROOT))) { "Duplicate Windows filename: $childName" }
             if (child.isDirectory) {
                 val subDir = File(dest, childName)
-                subDir.mkdirs()
-                moveTree(context, child, subDir, deleteSource, onBytes)
+                check(subDir.mkdir()) { "Could not create import subfolder" }
+                moveTree(context, child, subDir, deleteSource, depth + 1, ancestors + src.uri, onBytes)
                 if (deleteSource && !child.delete()) {
                     Timber.tag("CustomGameImporter").w("Could not remove source folder ${child.uri}")
                 }

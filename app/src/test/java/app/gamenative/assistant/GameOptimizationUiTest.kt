@@ -73,7 +73,7 @@ class GameOptimizationUiTest {
                 val outputs = (0 until input.length()).map { input.getJSONObject(it) }.filter { it.optString("type") == "function_call_output" }
                 if (outputs.isEmpty()) return tool("read_optimization_context")
                 val context = JSONObject(outputs[0].getString("output"))
-                assertEquals(60, context.getJSONObject("optimization").getInt("targetFps"))
+                assertEquals(120, context.getJSONObject("optimization").getInt("targetFps"))
                 assertEquals("Main hall", context.getJSONObject("optimization").getString("scene"))
                 assertTrue(context.getJSONObject("optimization").getJSONArray("runs").getJSONObject(0).getBoolean("usable"))
                 assertFalse(context.getJSONObject("comparison").getBoolean("eligible")) // One run is not before/after evidence.
@@ -100,8 +100,8 @@ class GameOptimizationUiTest {
         idle(model)
         compose.onNodeWithTag("open-in-game-assistant").performClick()
         compose.onNodeWithTag("optimization-open").performClick()
-        compose.waitUntil(10_000) { compose.onNodeWithTag("optimization-target-60").fetchSemanticsNode().config.contains(SemanticsProperties.Disabled).not() }
-        compose.onNodeWithTag("optimization-target-60").performClick()
+        compose.waitUntil(10_000) { compose.onNodeWithTag("optimization-target-120").fetchSemanticsNode().config.contains(SemanticsProperties.Disabled).not() }
+        compose.onNodeWithTag("optimization-target-120").performClick()
         compose.onNodeWithTag("optimization-scene").performTextInput("Main hall")
         compose.waitUntil(10_000) { compose.onNodeWithTag("optimization-measure").fetchSemanticsNode().config.contains(SemanticsProperties.Disabled).not() }
         compose.onNodeWithTag("optimization-measure").performScrollTo().performClick()
@@ -112,7 +112,7 @@ class GameOptimizationUiTest {
         compose.runOnIdle {
             repeat(134) {
                 ShadowSystemClock.advanceBy(Duration.ofMillis(500))
-                LiveGameSession.metrics(LiveGameSession.token(), liveTestMetrics(System.currentTimeMillis()), 1)
+                LiveGameSession.metrics(LiveGameSession.token(), liveTestMetrics(System.currentTimeMillis()).copy(fps = 120f, frameTimeP50Ms = 8.33f, frameTimeP95Ms = 8.6f, frameTimeMaxMs = 12f), 1)
             }
         }
         runBlocking { GameOptimizationSession.awaitSaved() }

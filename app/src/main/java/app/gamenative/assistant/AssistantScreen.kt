@@ -47,7 +47,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
     var keepConfirmation by remember { mutableStateOf(false) }
     var newChatConfirmation by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
-    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.modProposal, state.restoreRequested) {
+    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.modProposal, state.offlineProposal, state.restoreRequested) {
         withFrameNanos { }
         scroll.animateScrollToItem((scroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
     }
@@ -67,6 +67,9 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         DropdownMenuItem(text = { Text("Konto och modell") }, onClick = { menu = false; sheet = "account" })
                         DropdownMenuItem(text = { Text("Spelåtkomst och verktyg") }, onClick = { menu = false; sheet = "access" })
                         DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, enabled = !state.busy && !inGame, onClick = { menu = false; modLibrary = true })
+                        DropdownMenuItem(text = { Text("Installera offlinespel med Codex") }, enabled = !state.busy && !inGame, onClick = {
+                            menu = false; context.startActivity(Intent(context, OfflineGameImportActivity::class.java))
+                        })
                         DropdownMenuItem(text = { Text("Ny chatt") }, enabled = !state.busy, onClick = { menu = false; newChatConfirmation = true })
                         DropdownMenuItem(text = { Text("Appuppdateringar") }, enabled = !state.busy && !inGame, onClick = {
                             menu = false; context.startActivity(Intent(context, AiDevUpdateActivity::class.java))
@@ -82,7 +85,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     Column(Modifier.widthIn(max = 800.dp).fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Vad vill du få ordning på?", style = MaterialTheme.typography.headlineSmall)
                         Text(if (inGame) "Beskriv vad som händer just nu. Jag kan läsa mätvärden och tillgänglig logg medan spelet körs. Stäng panelen för att fortsätta spela." else "Beskriv problemet. Jag kan undersöka spelet och förbereda ändringar som du godkänner här.")
-                        listOf("Spelet hackar – hjälp mig nå stabila 30 FPS", "Min handkontroll fungerar inte", "Spelet startar inte", "Granska mina moddar").forEach { prompt ->
+                        listOf("Hjälp mig optimera prestandan", "Min handkontroll fungerar inte", "Spelet startar inte", "Granska mina moddar").forEach { prompt ->
                             OutlinedButton(onClick = { model.prompt(prompt) }, enabled = !state.busy) { Text(prompt) }
                         }
                     }
@@ -112,6 +115,13 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 if (!state.busy && state.status.isNotBlank()) item {
                     Text(state.status, Modifier.widthIn(max = 800.dp).fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
                 }
+                if (state.game.startsWith("CUSTOM_GAME_") && !inGame) item {
+                    Column(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = model::offlineHelp, enabled = !state.busy, modifier = Modifier.testTag("offline-help")) { Text("Hjälp med installation och startfil") }
+                        Text("Låter Codex undersöka detta lokala spels EXE-filer och föreslå nästa steg. Kräver ChatGPT-anslutning.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (state.offlineProposal != null || state.offlineUndo) item { OfflineGameCard(model, state, inGame) }
                 if (inGame && (state.proposal != null || state.fileProposal != null || state.modProposal != null || state.backup)) item {
                     Text("Permanenta inställnings-, fil- och modändringar kräver stoppat spel. Stödda försök i kontrollbryggan kan provas live nedan.", style = MaterialTheme.typography.bodySmall)
                 }
@@ -291,7 +301,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
 }
 
 @Composable
-private fun AssistantText(text: String) {
+internal fun AssistantText(text: String) {
     // Safe inline formatting: no HTML/WebView and no automatic execution or opening model links.
     val formatted = remember(text) { buildAnnotatedString {
         val pattern = Regex("\\*\\*(.+?)\\*\\*|`([^`]+)`")

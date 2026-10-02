@@ -1,12 +1,13 @@
-GameNative AI Dev 1.2.1-ai-dev.13 – optimering per spel
+GameNative AI Dev 1.2.1-ai-dev.14 – 120 FPS och offlinespel
 
-• Ny Optimera-knapp i varje spels Codex-vy, från biblioteket och under spel. Välj 30, 40 eller 60 FPS som mål. Mål och mätningar sparas separat för varje spel, även spel som läggs till senare.
-• Mät 60 sekunder: ange en återupprepningsbar scen, återgå till spelet efter fem sekunders nedräkning och spela samma runda. Första giltiga mätningen blir referens. Ingen AI-användning eller inställningsändring sker under mätningen.
-• Be Codex optimera läser mål, konfiguration, hårdvara, sparade försök och livedata i ett samlat verktyg. Agenten ska föreslå ett motiverat försök åt gången och bevara fungerande kontrollinställningar. Befintlig tillämpning, säkerhetskopia och ångra återanvänds.
-• Jämför nästa mätning med referensen. Ofullständiga försök och skillnader i kända testförhållanden markeras. Bildtid p95 är ett fönstersnitt, inte hela minutens percentil. Liknande metadata bevisar inte att scenen, moddar eller grafikval inne i spelet var identiska; upprepa innan du drar slutsatser.
+• Optimera stöder nu 30, 40, 60, 90 och 120 FPS. Tidigare mål och mätningar bevaras. Högre mål är inte en garanterad FPS-vinst; mät samma scen före och efter ett försök.
+• Bibliotek → + → Installera offlinespel med Codex importerar hela installationsmappen (EXE + BIN-filer och undermappar) eller en färdig spelmapp. Originalet behålls. Ofullständig kopiering publiceras inte som spel och biblioteket uppdateras vid återgång.
+• Fortsätt med Codex → Hjälp med installation och startfil. Assistenten undersöker detta spels EXE-filer och kan föreslå att starta installeraren i Wine. Du granskar filen och trycker Starta installeraren. Slutför Windows-guiden själv, gärna till C:\Games eller A:\Installed.
+• Stäng installeraren och be Codex hitta spelets startfil. Använd som startfil sparar den valda EXE-filen för start från biblioteket. Ångra startfil återställer tidigare startval och argument; installerade filer och Windows-registret omfattas inte.
+• Fil-ID:n, lokala sökrötter, kontroll av EXE-filens SHA-256 och stoppat spel krävs före tillämpning. Modellen får filtrerade filnamn och metadata; EXE- och BIN-innehåll skickas inte till modellen.
 
-Använd Quick Menu → Codex i spelet → Optimera → Mät 60 sekunder. Vanlig spelstart krävs, utan diagnostikläge eller Wine/Box64-debugloggning. Paus, bakgrund, öppnad chatt och spelstopp avbryter försöket. Bildgenerering/ändrad mätstride stöds inte i denna jämförelse. Mätningen fungerar lokalt utan separat dator.
+Spelfilerna kan vara offline, men Codex-samtalet kräver internet via din befintliga ChatGPT-anslutning. Första stödet gäller x86/x64 EXE; packa upp ZIP/7z separat. Fristående MSI/ISO, automatisk Windows-guide och obevakad installation stöds inte ännu. Installerarens kompatibilitet behöver provas på enheten.
 
-Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 33. Avinstallera inte och rensa inte data. Kontrollbryggans rättningar och livevisningen följer med.
+Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 34. Avinstallera inte och rensa inte data.
 
-244 tester godkända och APK-bygge lyckat. UI-flödet testat och granskat i stående och liggande läge med syntetiska mätdata och simulerade AI-svar. Ingen prestandaförbättring i Bloodstained eller andra spel är ännu uppmätt på MagicPad; det återstår att verifiera på enheten.
+257 tester godkända och APK-bygge lyckat. Testerna täcker riktig filkopiering med simulerad Android-dokumentleverantör, avbrott, granskning, start-intent, val av installerad EXE, ångra, 120 FPS-flödet och tidigare kontrollfunktioner. UI i stående och liggande läge är granskat. Modellsvaren och mätvärdena är simulerade. Verklig Wine-installation, spelstart och 120 FPS på MagicPad återstår att prova.

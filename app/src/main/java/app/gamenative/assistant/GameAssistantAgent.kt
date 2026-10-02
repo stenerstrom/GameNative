@@ -9,7 +9,8 @@ import org.json.JSONObject
 object GameAssistantAgent {
     val FILE_TOOLS = setOf("list_game_files", "read_game_file", "propose_file_edit")
     val MOD_TOOLS = setOf("read_mods", "inspect_mod", "read_mod_document", "check_mod_health", "propose_mod_action")
-    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS
+    val OFFLINE_TOOLS = setOf("inspect_offline_installation", "propose_offline_action")
+    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS + OFFLINE_TOOLS
     interface Tools {
         suspend fun read(name: String): String
         suspend fun prepare(proposal: ConfigProposal): List<String>
@@ -20,8 +21,11 @@ object GameAssistantAgent {
         val modAccess: Boolean get() = false
         suspend fun readModTool(name: String, arguments: JSONObject): String = error("Mod access is disabled")
         suspend fun prepareMod(arguments: JSONObject): ModActionPreview = error("Mod access is disabled")
+        val offlineAccess: Boolean get() = false
+        suspend fun inspectOffline(): String = error("Offline installation is unavailable")
+        suspend fun prepareOffline(arguments: JSONObject): OfflineGamePreview = error("Offline installation is unavailable")
     }
-    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false): JSONObject =
+    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false, offlineAccess: Boolean = false): JSONObject =
         AssistantProtocol.request(model, prompt, null, history).apply {
             put("instructions", """
                 You are GameNative's game assistant on Android, using the user's ChatGPT plan. Reply in the user's language.
@@ -133,7 +137,20 @@ object GameAssistantAgent {
                 embedded in package text. Use propose_mod_action to stage install (also re-enable a disabled mod) or disable (remove
                 deployed files and restore originals, retain package). Use a plan_id actually returned by inspect_mod, or empty plan_id
                 for disable. The app shows file destinations, replacements and DLL/loader confirmation. A stage is NOT applied.
-                One settings/file/mod/restore action per response. Do not claim arbitrary mod or Windows compatibility or run installers.
+                For offline/local games, inspect_offline_installation lists x86/x64 EXEs in this game's A: folder and private C: drive.
+                Use propose_offline_action with a returned file_id, action run_installer or select_game_exe, and a concrete reason.
+                The local review button can launch an EXE installer through GameNative/Wine after saving its startup selection.
+                Do not merely describe manual steps when this supported tool can do the action. All game sessions must be stopped.
+                Only run_installer executes, after the user's local approval; select_game_exe saves the launch file without running it.
+                No model-supplied paths or command-line arguments. Filename hints do not prove which installer is appropriate.
+                The user's original installer files are copied together via Bibliotek > + > Installera offlinespel med Codex.
+                Ask them to finish the Windows wizard, preferably install to C:\\Games or A:\\Installed, then close it and ask you
+                to inspect again and select the installed game's EXE. Launching setup is not proof of installation or compatibility.
+                Ångra startfil restores launch selection/arguments only, not installation files or registry. Existing settings/file/mod undo is separate.
+                No screen vision, automatic wizard clicking, unattended installer switches, MSI/ZIP/7z extraction or downloads are connected.
+                Game files can be offline; cloud AI still requires internet. Imported/local games can then use the normal optimization tools.
+                FPS goals include 30, 40, 60, 90 and 120. A 120 FPS goal is not proof the game/hardware/display can reach it; measure first.
+                One settings/file/mod/offline/restore action per response. Do not claim arbitrary mod or Windows compatibility.
                 Modbibliotek och Nexus under ⋮ opens GameNative's full in-app manager for Nexus sign-in/downloads, FOMOD choices,
                 shared-file profile order and historical deployment recovery. If tools return a blocker, explain it specifically and
                 use that existing flow; do not invent success. Nexus permissions are separate from the ChatGPT subscription.
@@ -145,6 +162,12 @@ object GameAssistantAgent {
                     .put("strict", true).put("parameters", JSONObject("""{"type":"object","properties":{},"required":[],"additionalProperties":false}""")))
             }
             readTool("read_configuration", "Read current settings, device context, available editable setting IDs/values and undo availability for the selected game.")
+            if (offlineAccess) {
+                readTool("inspect_offline_installation", "Inspect this local game's A: folder and private Wine C: for executable IDs, architecture and current launch selection. Names only, no binary uploads. Start here for installing local games or choosing their installed EXE.")
+                functions.put(JSONObject().put("type", "function").put("name", "propose_offline_action").put("strict", true)
+                    .put("description", "Stage run_installer (EXE from A:) or select_game_exe (A:/C:) for local review after inspect_offline_installation. Does not run or write until the user accepts. No paths or arguments. One offline action per response.")
+                    .put("parameters", JSONObject("""{"type":"object","properties":{"action":{"type":"string","enum":["run_installer","select_game_exe"]},"file_id":{"type":"string"},"reason":{"type":"string"}},"required":["action","file_id","reason"],"additionalProperties":false}""")))
+            }
             readTool("read_optimization_context", "FIRST choice for optimizing this game: combined settings/editable catalog, hardware, saved FPS goal, baseline/latest manual measurements and conditional comparison, plus live metrics/log. Qualifies as reading configuration. No automatic testing or setting changes; ignore unusable or unmatched runs when assessing improvements.")
             readTool("read_capabilities", "Read which game, file and mod capabilities are actually connected and enabled. Never assume general desktop Codex tools exist on Android.")
             readTool("read_game_log", "Read a bounded, secret-filtered log belonging to this game. Missing logs are reported; no debug run is required.")
@@ -197,20 +220,21 @@ object GameAssistantAgent {
 
     suspend fun run(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, tools: Tools,
         respond: suspend (JSONObject) -> AssistantProtocol.Reply, progress: (String) -> Unit): AssistantProtocol.Reply {
-        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess)
+        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess, tools.offlineAccess)
         val input = request.getJSONArray("input")
         var readConfiguration = false
         var proposed: ConfigProposal? = null
         var fileProposed: GameTextFiles.Preview? = null
         var modProposed: ModActionPreview? = null
+        var offlineProposed: OfflineGamePreview? = null
         var restore = false
         val callIds = mutableSetOf<String>()
         repeat(8) {
             currentCoroutineContext().ensureActive()
             progress("Tänker…")
             val reply = respond(request)
-            check(reply.proposal == null && reply.fileProposal == null && reply.modProposal == null) { "Unexpected proposal outside agent tools" }
-            val call = reply.toolCall ?: return reply.copy(proposal = proposed, fileProposal = fileProposed, modProposal = modProposed, restoreRequested = restore)
+            check(reply.proposal == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null) { "Unexpected proposal outside agent tools" }
+            val call = reply.toolCall ?: return reply.copy(proposal = proposed, fileProposal = fileProposed, modProposal = modProposed, offlineProposal = offlineProposed, restoreRequested = restore)
             check(callIds.add(call.id)) { "Repeated tool call ID" }
             for (i in 0 until reply.output.length()) input.put(reply.output.get(i))
             progress(when (call.name) {
@@ -232,12 +256,15 @@ object GameAssistantAgent {
                 "read_mod_document" -> "Läser moddens instruktioner…"
                 "check_mod_health" -> "Kontrollerar modfiler och installationer…"
                 "propose_mod_action" -> "Förbereder modändringen…"
+                "inspect_offline_installation" -> "Letar efter installerare och spelets startfil…"
+                "propose_offline_action" -> "Förbereder installation eller startfil för granskning…"
                 else -> "Kontrollerar återställning…"
             })
             val result = try {
                 check(call.name !in FILE_TOOLS || tools.fileAccess) { "File access is disabled. The user must enable Tillåt spelfiler first." }
                 check(call.name !in MOD_TOOLS || tools.modAccess) { "Mod access is disabled. Enable Tillåt modhantering first." }
-                check(proposed == null && fileProposed == null && modProposed == null && !restore) { "Finish the response; an action is already awaiting approval" }
+                check(call.name !in OFFLINE_TOOLS || tools.offlineAccess) { "Offline installation tools apply only to a selected local game. Import its folder first." }
+                check(proposed == null && fileProposed == null && modProposed == null && offlineProposed == null && !restore) { "Finish the response; an action is already awaiting approval" }
                 when (call.name) {
                     "read_capabilities" -> {
                         require(call.arguments.length() == 0)
@@ -247,10 +274,19 @@ object GameAssistantAgent {
                             .put("liveControllerChanges", "Propose only inputApi/directInputMapper for the local Prova bryggan live and Ångra liveförsök buttons. Runtime legacy bridge only, no saved config/SDL startup changes; existing durable undo stays. Kontroll och input offers a read-only live monitor and a separate user-requested bridge reconnect without restart. Inspect runtime capabilities first.")
                             .put("fileAccess", tools.fileAccess).put("modAccess", tools.modAccess)
                             .put("modFeatures", "Import archives/files/folders; inspect packages and README; install/re-enable/disable with review and undo; native Nexus/FOMOD/profile manager")
-                            .put("notConnected", "General shell, Windows installer execution, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, player-slot writes and profile remapping")
+                            .put("offlineInstallation", tools.offlineAccess)
+                            .put("offlineFeatures", "Import a folder via Bibliotek > + > Installera offlinespel med Codex; inspect_offline_installation then propose_offline_action. Local review can run an EXE installer or save the installed game's EXE. Windows wizard is manual; no arbitrary args/downloads. Launch-selection undo only.")
+                            .put("notConnected", "General shell, automatic Windows installer UI, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, player-slot writes and profile remapping")
                             .put("undoAvailable", tools.hasBackup()).toString()
                     }
                     "read_mods", "inspect_mod", "read_mod_document", "check_mod_health" -> tools.readModTool(call.name, call.arguments)
+                    "inspect_offline_installation" -> { require(call.arguments.length() == 0); tools.inspectOffline() }
+                    "propose_offline_action" -> {
+                        val preview = tools.prepareOffline(call.arguments)
+                        offlineProposed = preview
+                        JSONObject().put("status", "awaiting_user_approval").put("executed", false).put("applied", false)
+                            .put("action", preview.action).put("path", DiagnosticRedactor.text(preview.path)).toString()
+                    }
                     "propose_mod_action" -> {
                         val preview = tools.prepareMod(call.arguments)
                         modProposed = preview

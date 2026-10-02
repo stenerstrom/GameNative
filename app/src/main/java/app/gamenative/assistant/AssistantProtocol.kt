@@ -187,12 +187,13 @@ object AssistantProtocol {
     data class ToolCall(val id: String, val name: String, val arguments: JSONObject)
     data class Reply(val text: String, val proposal: ConfigProposal?, val toolCall: ToolCall? = null,
         val output: JSONArray = JSONArray(), val restoreRequested: Boolean = false, val fileProposal: GameTextFiles.Preview? = null,
-        val modProposal: ModActionPreview? = null)
+        val modProposal: ModActionPreview? = null, val offlineProposal: OfflineGamePreview? = null)
 
     fun conversationTurn(prompt: String, reply: Reply): ChatTurn {
         val summary = reply.proposal?.let { "\nProposed experiment for user review (not applied by this response): ${it.changes().joinToString("; ")}. ${it.reason}" }.orEmpty() +
             reply.fileProposal?.let { "\nProposed file edit for user review (not applied by this response): ${it.path}. ${it.reason}" }.orEmpty() +
-            reply.modProposal?.let { "\nProposed mod action for user review (not applied by this response): ${it.title}. ${it.reason}" }.orEmpty()
+            reply.modProposal?.let { "\nProposed mod action for user review (not applied by this response): ${it.title}. ${it.reason}" }.orEmpty() +
+            reply.offlineProposal?.let { "\nProposed offline action for user review (not run/applied): ${it.action} ${it.path}. ${it.reason}" }.orEmpty()
         return ChatTurn(DiagnosticRedactor.text(prompt).take(4000), DiagnosticRedactor.text(reply.text + summary).take(HISTORY_REPLY_CHARS),
             DiagnosticRedactor.text(reply.text).take(HISTORY_REPLY_CHARS))
     }

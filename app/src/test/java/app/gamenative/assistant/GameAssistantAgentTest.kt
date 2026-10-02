@@ -39,6 +39,33 @@ class GameAssistantAgentTest {
     private val fileEdit = """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b","replacements":[{"old_text":"FPS=60","new_text":"FPS=30"}],"reason":"Test FPS cap"}"""
     private val modAction = """{"mod_id":"local_test","action":"install","plan_id":"local_plan","reason":"Test"}"""
 
+    @Test fun offlineToolsAreRestrictedToLocalGamesAndNeverAcceptASecondAction() = runBlocking {
+        assertFalse(GameAssistantAgent.request("m", "install", emptyList()).getJSONArray("tools").toString().contains("inspect_offline_installation"))
+        var inspected = false; var prepared = 0
+        val tools = object : GameAssistantAgent.Tools {
+            override val offlineAccess = true
+            override suspend fun read(name: String) = "{}"
+            override suspend fun prepare(proposal: ConfigProposal) = error("No settings changes")
+            override fun hasBackup() = false
+            override suspend fun inspectOffline(): String { inspected = true; return "{}" }
+            override suspend fun prepareOffline(arguments: JSONObject): OfflineGamePreview {
+                check(inspected); prepared++
+                return OfflineGamePreview("run_installer", "A:\\setup.exe", "Test", "digest")
+            }
+        }
+        val replies = ArrayDeque(listOf(call("inspect_offline_installation"), call("propose_offline_action"),
+            call("propose_offline_action", id = "second"), AssistantProtocol.Reply("Review installer", null)))
+        var request: JSONObject? = null
+        val result = GameAssistantAgent.run("m", "install", emptyList(), tools, { request = it; replies.removeFirst() }, {})
+        assertEquals(1, prepared); assertNotNull(result.offlineProposal)
+        assertTrue(request!!.getJSONArray("input").toString().contains("an action is already awaiting approval"))
+        val disabled = Tools()
+        val rejected = ArrayDeque(listOf(call("inspect_offline_installation"), AssistantProtocol.Reply("Import folder", null)))
+        GameAssistantAgent.run("m", "install", emptyList(), disabled, { request = it; rejected.removeFirst() }, {})
+        assertTrue(disabled.reads.isEmpty())
+        assertTrue(request!!.getJSONArray("input").toString().contains("only to a selected local game"))
+    }
+
     @Test fun combinedInputReadAllowsOneReviewedProposalWithoutThreeRedundantReads() = runBlocking {
         val tools = Tools()
         val replies = ArrayDeque(listOf(call("read_input_route"), call("propose_settings", proposal), AssistantProtocol.Reply("Granska förslaget", null)))

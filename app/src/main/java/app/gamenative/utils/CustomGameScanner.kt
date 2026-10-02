@@ -680,7 +680,7 @@ object CustomGameScanner {
             return null
         }
 
-        if (SteamService.instance != null && PrefManager.importCustomGameAsSteamGame) {
+        if (!File(folder, ".gamenative-offline").isFile && SteamService.instance != null && PrefManager.importCustomGameAsSteamGame) {
             val steamApps = SteamService.findSteamAppWithInstallDir(dirName = folder.name)
             if (steamApps?.size == 1) {
                 val steamApp = steamApps[0]

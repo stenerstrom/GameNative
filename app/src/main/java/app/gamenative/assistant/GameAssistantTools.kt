@@ -26,11 +26,30 @@ class GameAssistantTools(private val context: Context, private val appId: String
     private var inspectedHash: String? = null
     override var fileAccess: Boolean = false
     override var modAccess: Boolean = false
+    override val offlineAccess: Boolean get() = appId.matches(Regex("CUSTOM_GAME_[1-9][0-9]*"))
+    private val offline = OfflineGameTools({
+        check(offlineAccess) { "Installationsverktygen gäller lokala spel." }
+        val game = requireNotNull(app.gamenative.utils.CustomGameScanner.getFolderPathFromAppId(appId)) { "Spelmappen saknas." }
+        listOf(OfflineGameTools.Root("A", File(game)), OfflineGameTools.Root("C",
+            File(app.gamenative.mods.ModContainerResolver.getWinePrefix(context, appId), "drive_c")))
+    }, { ContainerUtils.getContainer(context, appId).configFile },
+        File(context.noBackupFilesDir, "assistant/offline-launch-undo/$appId.json"), { !SteamService.keepAlive && LiveGameSession.token() == null })
     private val mods = GameModTools(context, appId, gameTitle)
     private val textFiles = GameTextFiles({ GameFileRoots.discover(context, appId) },
         File(context.noBackupFilesDir, "assistant/file-undo/$appId.json"))
 
-    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn(); mods.beginTurn() }
+    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn(); mods.beginTurn(); offline.beginTurn() }
+    override suspend fun inspectOffline(): String = withContext(Dispatchers.IO) {
+        check(offlineAccess); offline.inspect()
+    }
+    override suspend fun prepareOffline(arguments: JSONObject): OfflineGamePreview = withContext(Dispatchers.IO) {
+        check(offlineAccess); offline.prepare(arguments)
+    }
+    fun hasOfflineUndo() = offlineAccess && offline.hasBackup()
+    suspend fun applyOffline(preview: OfflineGamePreview) = withContext(Dispatchers.IO) {
+        check(offlineAccess); offline.apply(preview)
+    }
+    suspend fun restoreOffline() = withContext(Dispatchers.IO) { check(offlineAccess); offline.restore() }
     override suspend fun readModTool(name: String, arguments: JSONObject): String {
         check(modAccess) { "Mod access is disabled" }
         val keys = when (name) {

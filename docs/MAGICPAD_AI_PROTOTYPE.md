@@ -4,6 +4,36 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: 120 FPS och lokala spelinstallationer
+
+**1.2.1-ai-dev.14**, Android `versionCode=34`, utökar målvalet till **30, 40, 60, 90 och 120 FPS**. Valen radbryts i smala vyer. Befintliga spelmål och mätningar bevaras; valet av 120 FPS ändrar inte automatiskt begränsaren eller gör ett spel snabbare. Codex använder det valda målet och samma jämförelsemetod som i ai-dev.13. Exempeltexterna i chatten använder nu vanligt språk utan verktygsnamn.
+
+### Installera ett offlinespel på MagicPad
+
+1. Avsluta pågående spel och uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.14-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-34/GameNative-AI-Dev-1.2.1-ai-dev.14.apk) ovanpå AI Dev. Samma paket/signering; ingen avinstallation eller datarensning.
+2. Öppna **Bibliotek → + → Installera offlinespel med Codex**. Samma val finns i assistentens **⋮**-meny. Tryck **Välj spelmapp** och välj hela mappen med exempelvis `setup.exe` och tillhörande `.bin`-filer, eller en redan uppackad spelmapp. Androids mappväljare ger åtkomst till just det materialet.
+3. Håll appen öppen medan mappen kopieras. Originalet behålls. Kopian behöver eget lagringsutrymme, och installeraren kan dessutom kräva plats för det installerade spelet. Importen får en egen lokal spelidentitet och Steam-importinställningen gäller inte denna kopia.
+4. Tryck **Fortsätt med Codex → Hjälp med installation och startfil**. Detta aktiverar spelåtkomst för frågan och skickar en analys genom den befintliga ChatGPT-anslutningen. Ingen modell används under själva kopieringen.
+5. Codex undersöker tillgängliga Windows-EXE-filer och visar ett förslag. **Starta installeraren** sparar vald EXE och öppnar GameNatives vanliga Wine-start för just detta spel. Slutför Windows-guiden själv, gärna med installationsmappen `C:\Games` eller `A:\Installed`. Alla installationsfiler ligger tillsammans på A: med bevarade undermappar.
+6. Stäng installeraren och öppna samma spels Codex-vy från biblioteket. Be den hitta det installerade spelet. Den kan undersöka spelmappen och spelets privata C:-enhet och föreslå en ny startfil. **Använd som startfil** sparar valet utan att köra spelet. Starta sedan från biblioteket och prova kontroll, bild och ljud innan optimeringsförsök.
+7. **Ångra startfil** återställer tidigare startfil och startargument även efter appomstart. Den påverkar inte installerade filer eller registerändringar och är separat från befintlig konfigurations-/fil-/modbackup. En manuell ändring av startvalet stoppar överskrivning och bevarar återställningspunkten.
+
+### Integrering och begränsningar
+
+Importen återanvänder `CustomGameImporter` och `CustomGameScanner`. Den kopierar via SAF till en tillfällig mapp utanför bibliotekets sökrötter och publicerar först en färdig kopia. Biblioteket läser om listan när appen återupptas och de lokala spelmapparna har ändrats. Avbruten eller misslyckad kopiering tar bort den egna tillfälliga kopian och behåller originalet. Windows-kollisioner i filnamn och orimligt djupa/cykliska mappträd avvisas. En processdöd under kopiering kan lämna en tillfällig mapp; automatisk återupptagning av kopieringen ingår inte. Originalet är kvar och ofullständiga kopior registreras inte som spel.
+
+`inspect_offline_installation` och `propose_offline_action` är bara tillgängliga för lokala spel med spelåtkomst. Filsökningen är begränsad till 20 000 poster, 80 kandidater och tio undermappsnivåer. Modellen ser filtrerade filnamn, storlek, arkitektur och lokalt utfärdade fil-ID:n. Filnamn behandlas som opålitliga uppgifter; inga EXE- eller BIN-bytes skickas till modellen. Endast x86/x64 PE-EXE stöds, inte DLL:er som döpts om. Inga modellskrivna sökvägar eller startargument tillåts. Länkar och sökvägar utanför just spelets rötter avvisas.
+
+Förslaget är ett lokalt förhandsval: det varken kör eller skriver under AI-anropet. Vid godkännande verifieras filens SHA-256, filmetadata, konfigurationsversion och att ingen spelomgång körs. Sedan sparas återställningspunkten atomiskt före ändring av endast `executablePath` och `execArgs`. Befintliga startargument töms och detta visas på kortet. Den befintliga paketbundna launch-intenten återanvänds, utan temporära helkonfigurationsöverstyrningar. Android-aktiviteten för import är inte exporterad och inga nya behörigheter tillkommer.
+
+Första stödet är **EXE-installationsmappar och färdiga spelmappar**. ZIP/7z behöver packas upp separat; fristående MSI, ISO-montering, automatiska knapptryckningar i Windows-guiden, hämtning av spel och obevakad installation ingår inte. En startad installerare är inte bevis på lyckad installation. Den befintliga Wine-miljön används; kompatibilitet och eventuella runtime-behov varierar per installerare. Spelfiler kan vara offline, men Codex-modellen kräver internet och använder samma befintliga ChatGPT-abonnemangsanslutning.
+
+### Verifiering
+
+Riktade tester täcker lokal EXE-upptäckt, avgränsning per spel, Windows PE-arkitektur, länkavvisning, färska fil-ID:n, ändrad EXE med oförändrad storlek/tidsstämpel, ändrad konfiguration, stoppkrav och hållbar återställning av enbart startvalet. En simulerad Android-dokumentleverantör testar riktig kopiering av EXE + BIN + undermapp, separat biblioteksidentitet, ingen radering av källan samt avbrott/fel utan publicerad delkopia. UI-tester i liggande och 360 dp stående läge kör riktiga agentverktyg med simulerade AI-svar: granskning → start-intent → upptäckt av installerad EXE → sparat startval → ångra. Kontrollinställningar och andra konfigurationsfält bevaras. 120 FPS-målet provas genom mätning, lagring och agentanalys i båda orienteringarna med syntetiska mätdata.
+
+**257 tester godkända utan fel eller överhoppade tester**, samt lyckat APK-bygge. Fulla testresultat, APK-kontroller och granskade skärmbilder sparas under `build/ai-dev/verification/offline-install-120fps/`. Bygg-/testkommandot är samma som nedan, med assistent-, kontroll-, FPS- och konfigurationstester. Verklig Windows-installation, bibliotekets uppdatering efter återgång, spelstart från C: och faktisk 120 FPS på MagicPad kräver fysisk enhet; ingen sådan verifiering eller prestandavinst påstås av JVM-testerna.
+
 ## Uppdatering 2026-10-02: optimering per spel
 
 **1.2.1-ai-dev.13**, Android `versionCode=33`, lägger till **Optimera** i varje spels assistent, både från biblioteket och i spelet. Samma flöde är tillgängligt för nyinstallerade spel från de källor som redan använder GameNatives gemensamma spelvy; inget separat AI-stöd behöver byggas per titel. Mål och mätningar delas inte mellan spel. Modellen anropas när användaren begär analys, inte vid import eller under spelmätningen.

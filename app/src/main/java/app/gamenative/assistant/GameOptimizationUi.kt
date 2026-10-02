@@ -23,7 +23,7 @@ internal object GameOptimizationUi {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun GameOptimizationButton(model: GameAssistantViewModel, inGame: Boolean) {
     val state by model.state.collectAsState()
@@ -63,7 +63,7 @@ internal fun GameOptimizationButton(model: GameAssistantViewModel, inGame: Boole
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Optimera ${state.gameTitle}", style = MaterialTheme.typography.titleLarge)
             Text("Välj mål → mät → prova en ändring → mät samma scen igen. Mål och resultat sparas separat för varje spel.")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GameOptimizationStore.targets.forEach { fps ->
                     FilterChip(selected = target == fps, onClick = { target = fps }, label = { Text("$fps FPS") }, enabled = data != null && !localBusy && !state.busy,
                         modifier = Modifier.testTag("optimization-target-$fps"))
@@ -76,7 +76,7 @@ internal fun GameOptimizationButton(model: GameAssistantViewModel, inGame: Boole
             Button(onClick = { act {
                 withContext(Dispatchers.IO) { GameOptimizationSession.store(context, game).goal(target, scene) }
                 check(!model.state.value.busy)
-                model.prompt("Optimera det här spelet för stabila $target FPS. Läs read_optimization_context först: mål, konfiguration, hårdvara och mina sparade mätningar. Föreslå ett motiverat prestandaförsök åt gången som går att ångra. Bevara fungerande kontroller. Om mätning saknas, ge en försiktig första bedömning och hjälp mig ta en referens; påstå ingen uppmätt förbättring.")
+                model.prompt("Optimera det här spelet för stabila $target FPS utifrån inställningarna, hårdvaran och mina sparade mätningar. Föreslå ett motiverat försök åt gången som går att ångra. Bevara fungerande kontroller. Om mätning saknas, hjälp mig ta en referens först.")
                 GameOptimizationUi.detailsGame = null
                 model.send()
             } }, enabled = !localBusy && !state.busy && data != null && state.includeDiagnostics && state.accounts.accounts.any { it.id == state.accounts.selected && it.planEnabled } && state.selectedModel.isNotBlank(),

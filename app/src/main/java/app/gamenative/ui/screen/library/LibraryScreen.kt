@@ -142,6 +142,16 @@ fun HomeLibraryScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    if (BuildConfig.AI_ASSISTANT_ENABLED) {
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        DisposableEffect(lifecycle, viewModel) {
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) viewModel.refreshLocalGamesIfChanged()
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+    }
 
     LibraryScreenContent(
         state = state,
@@ -1383,6 +1393,10 @@ private fun LibraryScreenContent(
                 text = {
                     Column {
                         Text(stringResource(R.string.custom_game_import_dialog_message))
+                        if (BuildConfig.AI_ASSISTANT_ENABLED) TextButton(onClick = {
+                            showModernImportDialog = false
+                            context.startActivity(Intent(context, app.gamenative.assistant.OfflineGameImportActivity::class.java))
+                        }) { Text("Installera offlinespel med Codex") }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

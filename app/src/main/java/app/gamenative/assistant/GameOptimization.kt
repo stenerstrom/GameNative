@@ -42,7 +42,7 @@ class GameOptimizationStore(private val directory: File, private val game: Strin
     private fun write(data: JSONObject) { ConfigTransaction.atomicWrite(file, data.toString().toByteArray()) }
 
     companion object {
-        val targets = listOf(30, 40, 60)
+        val targets = listOf(30, 40, 60, 90, 120)
         private val lock = Any()
 
         /** Exclude session bookkeeping, but hash hidden settings too without disclosing credentials. */

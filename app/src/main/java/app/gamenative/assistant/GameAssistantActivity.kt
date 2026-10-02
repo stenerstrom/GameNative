@@ -71,6 +71,8 @@ data class AssistantUiState(
     val proposal: ConfigProposal? = null,
     val fileProposal: GameTextFiles.Preview? = null,
     val modProposal: ModActionPreview? = null,
+    val offlineProposal: OfflineGamePreview? = null,
+    val offlineUndo: Boolean = false,
     val backup: Boolean = false,
     val verified: Boolean = false,
     val proposalChanges: List<String> = emptyList(),
@@ -106,6 +108,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
         tools = null
         action("Opening chat…") {
             tools = GameAssistantTools(getApplication(), game, state.value.gameTitle)
+            mutable.update { it.copy(offlineUndo = tools!!.hasOfflineUndo()) }
             refreshAccounts()
             loadConversation()
             if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) loadModels()
@@ -113,32 +116,32 @@ class GameAssistantViewModel @JvmOverloads constructor(
         }
     }
     fun prompt(value: String) { mutable.update { it.copy(prompt = value.take(4000)) } }
-    fun model(value: String) { if (!state.value.busy) mutable.update { it.copy(selectedModel = value, verified = false, proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList()) } }
-    fun editDiagnostics(value: String) { mutable.update { it.copy(diagnostics = value.take(60_000), proposal = null, fileProposal = null, modProposal = null) } }
+    fun model(value: String) { if (!state.value.busy) mutable.update { it.copy(selectedModel = value, verified = false, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList()) } }
+    fun editDiagnostics(value: String) { mutable.update { it.copy(diagnostics = value.take(60_000), proposal = null, fileProposal = null, modProposal = null, offlineProposal = null) } }
     fun read() = action("Reading optional game settings and log…") {
         refreshDiagnostics()
         mutable.update { it.copy(status = "Settings loaded for review. You can chat even when no log is available.") }
     }
     fun attachDiagnostics(include: Boolean) = action("Uppdaterar spelåtkomst…") {
-        mutable.update { it.copy(includeDiagnostics = include, fileAccess = include && it.fileAccess, modAccess = include && it.modAccess, proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(), restoreRequested = false,
+        mutable.update { it.copy(includeDiagnostics = include, fileAccess = include && it.fileAccess, modAccess = include && it.modAccess, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(), restoreRequested = false,
             status = if (include) "Assistenten kan nu undersöka spelet när du skickar en fråga." else "Spelåtkomst avstängd. Du kan fortfarande chatta.") }
         saveConversation()
     }
     fun allowFiles(allow: Boolean) = action("Uppdaterar filåtkomst…") {
         check(!allow || state.value.includeDiagnostics) { "Aktivera spelverktyg först" }
-        mutable.update { it.copy(fileAccess = allow, proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(),
+        mutable.update { it.copy(fileAccess = allow, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(),
             restoreRequested = false, status = if (allow) "Assistenten kan läsa spelets stödda textfiler och föreslå ändringar när du skickar en fråga."
                 else "Filåtkomst avstängd. Tidigare ändringar kan fortfarande ångras.") }
         saveConversation()
     }
     fun allowMods(allow: Boolean) = action("Uppdaterar modåtkomst…") {
         check(!allow || state.value.includeDiagnostics) { "Aktivera spelverktyg först" }
-        mutable.update { it.copy(modAccess = allow, proposal = null, fileProposal = null, modProposal = null, status = "") }
+        mutable.update { it.copy(modAccess = allow, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, status = "") }
         saveConversation()
     }
     fun modLibraryClosed() = action("Uppdaterar modstatus…") {
         tools?.beginTurn()
-        mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, status = "Modbiblioteket är uppdaterat. Be assistenten läsa dina moddar för att fortsätta.") }
+        mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, status = "Modbiblioteket är uppdaterat. Be assistenten läsa dina moddar för att fortsätta.") }
     }
     fun importMod(type: LocalModSourceType, uris: List<Uri>) = action("Importerar modpaket…") {
         check(state.value.includeDiagnostics && state.value.modAccess) { "Aktivera Tillåt modhantering först" }
@@ -166,14 +169,14 @@ class GameAssistantViewModel @JvmOverloads constructor(
     }
     fun clearChat() {
         action("Ny konversation") {
-            mutable.update { it.copy(history = emptyList(), answer = "", proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(), activities = emptyList(), restoreRequested = false) }
+            mutable.update { it.copy(history = emptyList(), answer = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(), activities = emptyList(), restoreRequested = false) }
             saveConversation()
         }
     }
     fun cancel() { job?.cancel() }
 
     fun connect(newAccount: Boolean, openBrowser: (String) -> Unit) = action("Complete sign-in in the browser, then return here. Account eligibility has not been verified.") {
-        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, history = emptyList(), answer = "", includeDiagnostics = false, fileAccess = false, modAccess = false) }
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, history = emptyList(), answer = "", includeDiagnostics = false, fileAccess = false, modAccess = false) }
         provider.signIn(if (newAccount) null else state.value.accounts.selected) { url -> withContext(Dispatchers.Main) { openBrowser(url) } }
         refreshAccounts()
         loadConversation()
@@ -184,7 +187,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
     }
     fun select(id: String) = action("Selecting connection…") {
         provider.select(id)
-        mutable.update { it.copy(models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, fileProposal = null, modProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false) }
+        mutable.update { it.copy(models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false) }
         refreshAccounts()
         loadConversation()
         if (state.value.accounts.accounts.any { it.id == id && it.planEnabled }) loadModels()
@@ -198,7 +201,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
     }
     fun disconnect() = action("Signing out…") {
         val revoked = provider.signOut()
-        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false,
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false,
             status = if (revoked) "Signed out. Registration retained for reconnecting." else "Signed out locally. Remote revocation was not confirmed; disconnect this app in ChatGPT settings.") }
     }
     fun send() {
@@ -209,7 +212,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
             return
         }
         action("Waiting for a reply using your ChatGPT plan…") {
-            mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(), restoreRequested = false, activities = emptyList(), answer = "", verified = false) }
+            mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(), restoreRequested = false, activities = emptyList(), answer = "", verified = false) }
             val gameTools = requireNotNull(tools)
             gameTools.beginTurn()
             gameTools.fileAccess = before.includeDiagnostics && before.fileAccess
@@ -219,10 +222,10 @@ class GameAssistantViewModel @JvmOverloads constructor(
                     mutable.update { it.copy(status = progress, activities = if (progress == "Tänker…") it.activities else (it.activities + progress).distinct()) }
                 }
             } else provider.chat(before.selectedModel, before.prompt, null, before.history)
-            check(before.includeDiagnostics || (reply.proposal == null && reply.toolCall == null && reply.fileProposal == null && reply.modProposal == null && !reply.restoreRequested)) { "Unexpected tool without game access" }
+            check(before.includeDiagnostics || (reply.proposal == null && reply.toolCall == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null && !reply.restoreRequested)) { "Unexpected tool without game access" }
             if (reply.proposal != null) snapshotHash = requireNotNull(gameTools.preparedHash)
             val history = (before.history + AssistantProtocol.conversationTurn(before.prompt, reply)).takeLast(AssistantProtocol.HISTORY_TURNS)
-            mutable.update { it.copy(history = history, prompt = "", proposal = reply.proposal, fileProposal = reply.fileProposal, modProposal = reply.modProposal, verified = true,
+            mutable.update { it.copy(history = history, prompt = "", proposal = reply.proposal, fileProposal = reply.fileProposal, modProposal = reply.modProposal, offlineProposal = reply.offlineProposal, verified = true,
                 proposalChanges = gameTools.preparedChanges, restoreRequested = reply.restoreRequested, status = "") }
             saveConversation()
         }
@@ -230,7 +233,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
     fun localProposal() = action("Preparing local experiment…") {
         check(snapshotHash != null) { "Read a game configuration first" }
         mutable.update { it.copy(answer = "Local test suggestion — no AI request was made.",
-            fileProposal = null, modProposal = null,
+            fileProposal = null, modProposal = null, offlineProposal = null,
             proposal = ConfigProposal(30, null, "Test GameNative's existing 30 FPS limiter. It may reduce unnecessary GPU work when the game exceeds 30 FPS; it cannot fix a game that cannot reach 30 FPS. Compare the same scene and restore if worse."),
             status = "Local test proposal ready; no performance improvement has been measured.") }
     }
@@ -269,6 +272,28 @@ class GameAssistantViewModel @JvmOverloads constructor(
         requireNotNull(tools).applyMod(loaderApproved)
         recordAction("${preview.title}: modfilerna har ändrats och verifierats. Ångra ändring återställer detta försök. Funktion och kompatibilitet måste fortfarande testas i spelet.")
     }
+    fun offlineHelp() {
+        if (state.value.busy) return
+        mutable.update { it.copy(includeDiagnostics = true,
+            prompt = "Hjälp mig installera eller starta det här offlinespelet. Undersök spelmappen och föreslå nästa steg. Om spelet redan är installerat, hjälp mig välja rätt startfil.") }
+        send()
+    }
+    fun applyOffline() = action("Förbereder spelets startfil…") {
+        check(state.value.includeDiagnostics) { "Spelåtkomst är avstängd." }
+        val preview = requireNotNull(state.value.offlineProposal)
+        val game = state.value.game
+        requireNotNull(tools).applyOffline(preview)
+        mutable.update { it.copy(offlineUndo = true) }
+        val installer = preview.action == "run_installer"
+        recordAction(if (installer) "Installerarens startfil ${preview.path} har valts. Öppnar den i Wine. Slutför Windows-guiden, stäng den och be mig hitta spelets EXE. Installationens resultat är ännu inte verifierat."
+            else "${preview.path} har valts som spelets startfil. Starta spelet från biblioteket för att prova. Ångra startfil återställer det tidigare valet.")
+        if (installer) getApplication<Application>().startActivity(OfflineGameLaunch.intent(getApplication(), game))
+    }
+    fun restoreOffline() = action("Återställer tidigare startfil…") {
+        requireNotNull(tools).restoreOffline()
+        mutable.update { it.copy(offlineUndo = false) }
+        recordAction("Tidigare startfil och startargument har återställts. Installerade filer och Windows-registret påverkas inte av Ångra startfil.")
+    }
     fun restore() = action("Återställer senaste ändringen…") {
         val wasFile = requireNotNull(tools).hasFileBackup()
         val wasMod = requireNotNull(tools).hasModBackup()
@@ -276,14 +301,14 @@ class GameAssistantViewModel @JvmOverloads constructor(
         if (!wasFile && !wasMod) refreshDiagnostics()
         recordAction(if (wasMod) "Modändringen har återställts." else if (wasFile) "Originalfilen har återställts från säkerhetskopian." else "Tidigare inställningar har återställts. Övriga inställningar är bevarade.")
     }
-    fun dismissProposal() { if (!state.value.busy) mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(), restoreRequested = false) } }
+    fun dismissProposal() { if (!state.value.busy) mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(), restoreRequested = false) } }
     fun keepChanges() = action("Behåller inställningarna…") {
         withContext(Dispatchers.IO) { requireNotNull(tools).keepAll() }
         recordAction("Ändringarna behålls. Återställningspunkten är borttagen; nästa ändring får en ny säkerhetskopia.")
     }
     private suspend fun recordAction(message: String) {
         mutable.update { it.copy(history = (it.history + AssistantProtocol.ChatTurn("[Åtgärd i appen]", message)).takeLast(AssistantProtocol.HISTORY_TURNS),
-            status = "", proposal = null, fileProposal = null, modProposal = null, proposalChanges = emptyList(), restoreRequested = false) }
+            status = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, proposalChanges = emptyList(), restoreRequested = false) }
         saveConversation()
     }
     private suspend fun saveConversation() {
@@ -299,10 +324,10 @@ class GameAssistantViewModel @JvmOverloads constructor(
 
     private suspend fun refreshDiagnostics() {
         snapshotHash = null
-        mutable.update { it.copy(configurationReady = false, diagnostics = "", proposal = null, fileProposal = null, modProposal = null) }
+        mutable.update { it.copy(configurationReady = false, diagnostics = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null) }
         val snapshot = withContext(Dispatchers.IO) { requireNotNull(tools).readDiagnostics() }
         snapshotHash = snapshot.hash
-        mutable.update { it.copy(diagnostics = snapshot.text, configurationReady = true, proposal = null, fileProposal = null, modProposal = null) }
+        mutable.update { it.copy(diagnostics = snapshot.text, configurationReady = true, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null) }
     }
     private suspend fun refreshAccounts() {
         val accounts = provider.accounts()
@@ -312,7 +337,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
         val models = provider.models()
         mutable.update { it.copy(models = models, modelsUpdatedAt = System.currentTimeMillis(),
             selectedModel = it.selectedModel.takeIf { selected -> models.any { model -> model.slug == selected } } ?: models.firstOrNull()?.slug.orEmpty(),
-            verified = false, proposal = null, fileProposal = null, modProposal = null) }
+            verified = false, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null) }
         check(models.isNotEmpty()) { "No models available for this connection" }
     }
     private fun action(message: String, block: suspend () -> Unit) {
@@ -320,7 +345,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
         mutable.update { it.copy(busy = true, status = message) }
         job = viewModelScope.launch {
             try { block() } catch (e: CancellationException) {
-                mutable.update { it.copy(status = "Cancelled. No new proposal accepted.", proposal = null, fileProposal = null, modProposal = null) }
+                mutable.update { it.copy(status = "Cancelled. No new proposal accepted.", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null) }
                 throw e
             } catch (e: Exception) {
                 mutable.update { it.copy(status = DiagnosticRedactor.text(e.message ?: "Operation failed").take(1500)) }
@@ -330,7 +355,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
                     try {
                         refreshAccounts()
                         val backup = withContext(Dispatchers.IO) { tools?.hasBackup() ?: false }
-                        mutable.update { it.copy(backup = backup) }
+                        mutable.update { it.copy(backup = backup, offlineUndo = tools?.hasOfflineUndo() ?: false) }
                     } catch (_: Exception) { /* The operation's error remains visible. */ }
                 }
                 mutable.update { it.copy(busy = false) }

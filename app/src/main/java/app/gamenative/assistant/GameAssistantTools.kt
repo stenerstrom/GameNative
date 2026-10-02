@@ -70,6 +70,21 @@ class GameAssistantTools(private val context: Context, private val appId: String
         textFiles.prepare(proposal)
     }
     override suspend fun read(name: String): String {
+        if (name == "read_input_route") {
+            val launch = LiveGameSession.view(appId)?.token
+            val configuration = JSONObject(read("read_configuration"))
+            val controllers = JSONObject(read("inspect_controllers"))
+            val route = withContext(Dispatchers.Main) { ControllerInputRoute.snapshot(appId) }
+            val trace = JSONObject(ControllerInputTrace.read(appId))
+            if (LiveGameSession.view(appId)?.token != launch) {
+                inspectedHash = null
+                error("Game launch changed during inspection. Read input route again before proposing a change.")
+            }
+            return JSONObject().put("settings", configuration).put("controllers", controllers)
+                .put("route", route).put("trace", trace)
+                .put("note", "Combined read only. Settings are saved configuration, route is current app-side state, trace is the user's bounded observation with its own launch/freshness. Do not treat old events as current or infer per-event delivery between stages.")
+                .toString()
+        }
         if (name == "read_live_session") return LiveGameSession.read(appId)
         if (name == "read_controller_trace") return ControllerInputTrace.read(appId)
         if (name == "read_performance" || name == "read_game_log") {

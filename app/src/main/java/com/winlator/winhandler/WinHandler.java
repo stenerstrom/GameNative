@@ -130,6 +130,31 @@ public class WinHandler {
         return data;
     }
 
+    /** Read-only wire snapshot. Never injects input, changes connection flags or wakes the guest. */
+    public org.json.JSONObject getAssistantInputRoute() {
+        org.json.JSONObject data = getAssistantControllerStatus();
+        try {
+            org.json.JSONArray buffers = data.getJSONArray("buffers");
+            String[] buttonNames = {"A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "Up", "Down", "Left", "Right"};
+            String[] axes = {"LX", "LY", "RX", "RY", "LT", "RT"};
+            for (int slot = 0; slot < MAX_PLAYERS; slot++) {
+                org.json.JSONObject item = buffers.getJSONObject(slot);
+                item.put("destination", "gamepad_shm/gamepad" + (slot == 0 ? "" : slot) + ".mem");
+                MappedByteBuffer buffer = getGamepadBuffer(slot);
+                if (buffer == null) continue;
+                item.put("connected", buffer.getInt(OFF_CONNECTED) != 0)
+                        .put("sequence", Integer.toUnsignedLong(buffer.getInt(0)));
+                org.json.JSONObject axisValues = new org.json.JSONObject();
+                for (int i = 0; i < axes.length; i++) axisValues.put(axes[i], (int)buffer.getShort(OFF_LX + i * 2));
+                org.json.JSONArray buttons = new org.json.JSONArray();
+                for (int i = 0; i < buttonNames.length; i++) if (buffer.get(OFF_BTN + i) != 0) buttons.put(buttonNames[i]);
+                item.put("encodedAxes", axisValues).put("pressedButtons", buttons);
+            }
+            data.put("snapshotNote", "Read-only app-side shared memory snapshot. Axes are the encoded signed 16-bit values, including trigger curve; not raw Android axes. Sequence changes and connection flags do not prove SDL, XInput or the game read this memory. No per-button guest receipt or guest DLL inspection.");
+        } catch (org.json.JSONException ignored) { }
+        return data;
+    }
+
     /**
      * The handler of the running session, or null while no session is up. Published from
      * {@link #start()} so code outside the UI layer can reach the live handler.
@@ -672,7 +697,8 @@ public class WinHandler {
                             this.sendData.put((byte) 0);
                             this.sendData.putInt(0);
                         }
-                        sendPacket(port);
+                        boolean sent = sendPacket(port);
+                        app.gamenative.assistant.ControllerInputTrace.legacyReply(assistantSessionToken, port, processId, isXInput, finalEnabled, sent);
                     });
                     return;
                 }
@@ -695,7 +721,8 @@ public class WinHandler {
                         this.sendData.put((byte) 0);
                         this.sendData.putInt(0);
                     }
-                    sendPacket(port);
+                    boolean sent = sendPacket(port);
+                    app.gamenative.assistant.ControllerInputTrace.legacyReply(assistantSessionToken, port, processId, isXInput, finalEnabled2, sent);
                 });
                 return;
             case RequestCodes.GET_GAMEPAD_STATE:
@@ -719,7 +746,8 @@ public class WinHandler {
                             this.currentController.state.writeTo(this.sendData);
                         }
                     }
-                    sendPacket(port);
+                    boolean sent = sendPacket(port);
+                    app.gamenative.assistant.ControllerInputTrace.legacyState(assistantSessionToken, port, enabled3, sent);
                 });
                 return;
             case RequestCodes.RELEASE_GAMEPAD:
@@ -1069,7 +1097,8 @@ public class WinHandler {
                         this.currentController.state.writeTo(this.sendData);
                     }
                 }
-                sendPacket(port);
+                boolean sent = sendPacket(port);
+                app.gamenative.assistant.ControllerInputTrace.legacyState(assistantSessionToken, port, enabled, sent);
             });
         }
     }
@@ -1295,8 +1324,10 @@ public class WinHandler {
         }
         buffer.put(OFF_HAT, (byte)0);
 
+        int sequenceBefore = buffer.getInt(0);
         notifyStateChanged(slot);
         app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, true, false);
+        app.gamenative.assistant.ControllerInputTrace.nativeWake(assistantSessionToken, slot + 1, sequenceBefore, buffer.getInt(0));
     }
 
     public void sendVirtualGamepadState(GamepadState state, int slot) {
@@ -1352,8 +1383,10 @@ public class WinHandler {
         buffer.put(OFF_HAT, (byte) 0);
 
         // Notify native side that state changed
+        int sequenceBefore = buffer.getInt(0);
         notifyStateChanged(slot);
         app.gamenative.assistant.ControllerInputTrace.guestState(assistantSessionToken, slot + 1, state, true, true);
+        app.gamenative.assistant.ControllerInputTrace.nativeWake(assistantSessionToken, slot + 1, sequenceBefore, buffer.getInt(0));
     }
 
     public void sendVirtualGamepadState(GamepadState state) {

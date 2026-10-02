@@ -4,6 +4,30 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: se inputens signalväg och analysera den med Codex
+
+**1.2.1-ai-dev.12**, Android `versionCode=32`, lägger till **Visa input live** under **Quick Menu → Codex i spelet → Kontroll och input**. Den lilla panelen visar de senaste Android-signalerna, valda profilmappningar, skrivningar till spelarplatsens kontrollbrygga och om native-väckningen ändrade sekvensräknaren. Varje steg har en ålder. Panelen kan minimeras och avslutas med **Avsluta och granska**. Det tidigare 20-sekunderstestet finns kvar.
+
+Visningen är en lokal avläsning. Den injicerar ingen input, byter inga profiler och ändrar inga anslutningsflaggor eller inställningar. Den stoppar senast efter fem minuter, vid återgång till chatten, när appen går i bakgrunden eller när spelomgången slutar. Bara kontrollhändelser registreras; inga skrivna texter, skärmbilder, kontrolladresser eller inloggningsuppgifter. Historiken är begränsad till 100 händelser, 256 signalintervall, åtta kontroller och 16 äldre Wine-klienter. Ny spelomgång tömmer observationen. Öppna chatten och tryck **Analysera input med Codex** för att skicka frågan med spelåtkomst. Inget automatiskt AI-anrop sker när panelen startar, uppdateras eller stannar.
+
+**Visa destinationer och API** visar en avläsning vid öppnandet: per spelarplats visas den relativa delade minnesfilen, anslutning, buffertstatus, native-kontroll, knappbitar och kodade axelvärden. Under observationen registreras även äldre Wine-klienters XInput/DirectInput-begäran, rapporterat process-ID, lokal UDP-port, sända tillståndspaket och sändningsfel. Process-ID:t är klientens egen uppgift, inte en verifierad identifiering av spelets process. En lyckad sändning är inget mottagningskvitto. SDL/evshim kan läsa delat minne utan sådana äldre anrop, så noll klienter är inte ett bevis på fel.
+
+Agentens nya `read_input_route` samlar aktuell konfiguration, tillåtna inställningar, anslutna kontroller, mappningar, bryggans aktuella data och senaste observation i ett verktygsanrop. Lästillfället binds till spelomgången; byte av omgång under avläsningen avvisas. Verktyget uppfyller samma krav på konfigurationsläsning före ett förslag som `read_configuration`, med oförändrad granskning och ångra. Agenten instrueras att börja här vid kontrollproblem och undvika att läsa samma underlag tre gånger. Det simulerade UI-flödet läser, föreslår och svarar i tre modellomgångar i stället för fem; faktisk molnlatens har inte mätts.
+
+Avläsningarna visar hur långt input observerats i appen. Händelserna är separata observationer, inte en koppling av samma knapptryckning genom varje steg. Delat minne kan ändras under läsningen. Ett lyckat native-anrop, sekvensökning eller skrivning bevisar fortfarande inte att SDL/Wine eller PC-spelet har behandlat knappen. Inget stöd för läsning av spelets laddade DLL:er eller bekräftelse för varje konsumerad knapp läggs till.
+
+### Uppdatera och prova på MagicPad
+
+1. Avsluta spelet och uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.12-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-32/GameNative-AI-Dev-1.2.1-ai-dev.12.apk) ovanpå AI Dev. Samma paket och signerare används; avinstallera inte och rensa inte data. Rättningarna i ai-dev.11 följer med.
+2. Starta samma spel med befintliga inställningar. Öppna **Quick Menu → Codex i spelet → Kontroll och input → Visa input live**. Tryck A/B, styrkors, båda spakar och triggers. Kontrollera också om spelet reagerar. Ingen debug run krävs.
+3. Prova att minimera panelen. Input ska fortsätta fungera. Avsluta och granska; jämför spelarplats, mappning, signalernas ålder och destinationer. En profil som mappar till tangentbord/mus behöver inte ge en gamepad-skrivning.
+4. Tryck **Analysera input med Codex** med spelåtkomst aktiverad. Be om ett relevant nästa steg. Verifiera att förslag kräver din tillämpning, att liveförsök går att ångra och att ingen sparad inställning ändras av själva observationen.
+5. Prova bakgrund/återgång, avbruten observation och nästa spel. Kontrollens knappsläpp får inte försvinna och gamla observationer får inte presenteras som input från den nya spelomgången.
+
+**231 tester godkända, inga fel eller överhoppade tester**, och `assembleModernDebug` lyckades. Tester kör riktiga mappningar och Java-minnesfiler med JNI-väckningen ersatt av en testgräns: upprepade avläsningar ändrar varken bytes, buffertposition, anslutning eller antal native-anrop; knappsläpp fungerar efter stoppad observation. Livevisningens tidsgräns, åldrar, begränsningar, filtrering och bindning till rätt spelomgång kontrolleras. UI-flödena kör både kort test och livevisning i stående och liggande läge, start/minimering/stopp, explicit analys med tre simulerade modellomgångar och granskat förslag utan sparad ändring. Skärmbilderna är granskade. Samtliga 32 paketerade native-bibliotek är byteidentiska med ai-dev.11.
+
+Lokala resultat sparas under `build/ai-dev/verification/input-route/`. Verklig Bluetooth/USB, JNI, SDL/Wine, spelets respons och molnsvarets kvalitet behöver verifieras på MagicPad; ingen fysisk Android-enhet är ansluten till byggmiljön.
+
 ## Uppdatering 2026-10-02: reparation av kontrollbryggan
 
 **1.2.1-ai-dev.11**, Android `versionCode=31`, rättar två verifierbara fel efter rapporten att kontroller inte fungerar i något spel.

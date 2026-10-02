@@ -68,4 +68,41 @@ class ControllerTraceBufferTest {
         assertTrue(data.toString().length < 80_000)
         assertFalse(data.toString().contains("NaN"))
     }
+
+    @Test fun liveObservationOutlastsShortTestButStopsAtFiveMinutesAndKeepsFreshness() {
+        buffer.start("STEAM_42", "launch", ControllerTraceBuffer.Mode.LIVE)
+        now = 21_000; event()
+        assertTrue(buffer.view("STEAM_42")!!.active)
+        now = 24_000
+        val live = JSONObject(buffer.view("STEAM_42")!!.json)
+        assertEquals(3000L, live.getJSONArray("latestStages").getJSONObject(0).getLong("ageMs"))
+        now = 300_001; event()
+        assertFalse(buffer.view("STEAM_42")!!.active)
+        assertEquals(1, buffer.view("STEAM_42")!!.androidSamples)
+        assertEquals(300_000, JSONObject(buffer.view("STEAM_42")!!.json).getInt("durationMs"))
+        now = 301_000
+        assertEquals(1000, JSONObject(buffer.view("STEAM_42")!!.json).getInt("finishedAgeMs"))
+    }
+
+    @Test fun legacyObservationsAreOptInBoundedAndDoNotCarryIdentityAcrossReusedPorts() {
+        buffer.legacy("launch", 10001, 42, "XInput", true, true)
+        assertNull(buffer.view("STEAM_42"))
+        buffer.start("STEAM_42", "launch", ControllerTraceBuffer.Mode.LIVE)
+        buffer.legacy("old", 10001, 42, "XInput", true, true)
+        assertTrue(buffer.view("STEAM_42")!!.clients.isEmpty())
+        buffer.legacy("launch", 10001, 42, "XInput", false, true)
+        buffer.legacy("launch", 10001, null, null, false, false)
+        val client = buffer.view("STEAM_42")!!.clients.single()
+        assertEquals(42, client.processId); assertFalse(client.allowed)
+        assertEquals(0, client.statePackets); assertEquals(1, client.sendFailures)
+        buffer.legacy("launch", 10001, 99, "DirectInput", true, true)
+        assertEquals(0, buffer.view("STEAM_42")!!.clients.single().sendFailures)
+        assertEquals(99, buffer.view("STEAM_42")!!.clients.single().processId)
+        repeat(40) { now++; buffer.legacy("launch", 11000 + it, 50 + it, "XInput", true, true) }
+        assertEquals(16, buffer.view("STEAM_42")!!.clients.size)
+        assertFalse(buffer.view("STEAM_42")!!.clients.any { it.port == 10001 })
+        buffer.finish("launch", "app_backgrounded")
+        buffer.legacy("launch", 20000, 200, "XInput", true, true)
+        assertFalse(buffer.view("STEAM_42")!!.clients.any { it.port == 20000 })
+    }
 }

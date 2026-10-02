@@ -1,12 +1,12 @@
-GameNative AI Dev 1.2.1-ai-dev.11 – reparation av kontrollbryggan
+GameNative AI Dev 1.2.1-ai-dev.12 – input live och samlad Codex-diagnostik
 
-• Rättar ett fel från paketbytet till app.gamenative.aidev: EVSHIM_BASE_PATH sätts nu även i Android-processen innan libevshim laddas. Tidigare var bara Wine-processen konfigurerad, medan Androids native-brygga försökte använda originalappens privata filer. Knappdata kunde skrivas utan att spelet fick väcksignalen. Detta berör både fysisk kontroll och virtuella gamepad-knappar.
-• Återanslutningen släpper alltid sin tillfälliga inputspärr på den ursprungliga bryggan, även om spelvyn försvinner. En gammal återanslutning får inte skriva över en ny spelomgångs kontrollbuffert.
-• Vid spelstart verifieras nu att native-väckningen ändrar sekvensräknaren i samma minnesfil som Android skriver. Assistenten får resultat per spelarplats. En lyckad buffertskrivning ensam räknas inte som fungerande signalöverföring.
-• Om native-mappningen saknas startas inga vibrationspollare som annars kunde gå i en tät CPU-loop.
+• Nytt: Quick Menu → Codex i spelet → Kontroll och input → Visa input live. En liten panel visar senaste Android-signaler, valda mappningar, spelarplatsens bryggskrivningar och native-signal, med ålder per steg. Kan minimeras och stoppas; avslutas senast efter fem minuter. Det korta 20-sekunderstestet finns kvar.
+• Visa destinationer och API visar kontrollbryggans aktuella data per spelarplats. Observationen kan även visa äldre Wine-klienters XInput/DirectInput-begäran, rapporterat process-ID, lokal UDP-destination och sändningsfel.
+• Analysera input med Codex använder ett samlat verktyg för konfiguration, kontroller, mappningar, brygga och observation. Agenten får samma underlag utan tre separata läsanrop. Ändringsförslag granskas och tillämpas som tidigare.
+• Visningen läser bara. Ingen simulerad input, profiländring eller ändring av anslutningsflaggor. Inget skickas till modellen förrän du ber om analys med spelåtkomst. Inga skrivna texter registreras.
 
-Spelinställningar, kontrollprofiler, moddar och säkerhetskopior skrivs inte om av uppdateringen. Den tidigare XInput/DirectInput-rättningen och liveförsöken finns kvar.
+Data från appen visar inte säkert att PC-spelet har behandlat knappen. Sekvensökning och lyckad sändning är inga mottagningskvitton. Noll äldre Wine-klienter kan vara normalt när spelet använder SDL. Rapporterat process-ID är inte verifierat som spelets process.
 
-Avsluta spelet, uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev och öppna appen på nytt. Avinstallera inte och rensa inte appdata. Samma paket och signerare; versionskod 31. Appen måste startas på nytt eftersom native-biblioteket läser sökvägen när det laddas.
+Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 32. Avinstallera inte och rensa inte appdata. Rättningarna av kontrollbryggan i ai-dev.11 följer med.
 
-223 tester godkända och APK-byggning lyckad. Regressionstester återskapar fel sökväg vid appstart och kvarhängande återanslutningsspärr. Androids libc-miljöanrop och JNI ersätts i JVM-testerna; verklig JNI/Wine-signalöverföring och kontrollrespons på MagicPad återstår att verifiera. Ingen fysisk Android-enhet var ansluten vid bygget.
+231 tester godkända och APK-byggning lyckad. Avläsningarnas frånvaro av inputändringar, knappsläpp, tidsgränser och flödet från livepanel till granskat Codex-förslag är testade lokalt. UI granskat i båda skärmorienteringarna. De 32 native-biblioteken är oförändrade. Verklig kontrollrespons och JNI/Wine-överföring behöver provas på MagicPad; ingen fysisk Android-enhet var ansluten. Molnets svarstid är inte uppmätt.

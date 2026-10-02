@@ -55,7 +55,12 @@ class ControllerTestUiTest {
     @Test @Config(qualifiers = "w600dp-h960dp-port")
     fun portraitProbeAndReviewedFix() = exercise("portrait")
 
-    private fun exercise(orientation: String) {
+    @Test fun landscapeLiveMonitorAndCombinedAnalysis() = exercise("live-landscape", liveMonitor = true)
+
+    @Test @Config(qualifiers = "w600dp-h960dp-port")
+    fun portraitLiveMonitorAndCombinedAnalysis() = exercise("live-portrait", liveMonitor = true)
+
+    private fun exercise(orientation: String, liveMonitor: Boolean = false) {
         val app = ApplicationProvider.getApplicationContext<Application>()
         PrefManager.init(app)
         ControllerManager.getInstance().init(app)
@@ -80,18 +85,18 @@ class ControllerTestUiTest {
                 requests++
                 val input = request.getJSONArray("input")
                 val outputs = (0 until input.length()).map { input.getJSONObject(it) }.filter { it.optString("type") == "function_call_output" }
-                if (outputs.isEmpty()) return tool("read_controller_trace")
-                val trace = JSONObject(outputs[0].getString("output"))
+                if (outputs.isEmpty()) return tool("read_input_route")
+                val combined = JSONObject(outputs[0].getString("output"))
+                val trace = combined.getJSONObject("trace")
                 assertTrue(trace.getBoolean("available"))
+                assertTrue(combined.getJSONObject("controllers").has("runtimeBridge"))
+                assertTrue(combined.getJSONObject("settings").has("configuration"))
+                assertTrue(combined.getJSONObject("settings").has("editableSettings"))
+                assertFalse(combined.getJSONObject("route").getBoolean("available")) // This UI test has no native bridge.
                 assertEquals(2, trace.getJSONObject("counts").getInt("ANDROID"))
                 assertEquals(0, trace.getJSONObject("counts").getInt("WINE_BUFFER"))
                 assertFalse(trace.getBoolean("recording"))
-                if (outputs.size == 1) return tool("inspect_controllers")
-                if (outputs.size == 2) {
-                    assertTrue(JSONObject(outputs[1].getString("output")).has("runtimeBridge"))
-                    return tool("read_configuration")
-                }
-                if (outputs.size == 3) return tool("propose_settings", """{"changes":[{"setting":"inputApi","value":"BOTH"}],"reason":"Testförslag: prova XInput och DirectInput efter omstart. Testet visar Android-signaler men ingen bryggskrivning; orsaken är ännu okänd."}""")
+                if (outputs.size == 1) return tool("propose_settings", """{"changes":[{"setting":"inputApi","value":"BOTH"}],"reason":"Testförslag: prova XInput och DirectInput efter omstart. Testet visar Android-signaler men ingen bryggskrivning; orsaken är ännu okänd."}""")
                 return AssistantProtocol.Reply("Android registrerade knapparna. Testet visar ingen skrivning till Wine-bryggan. Granska förslaget efter att spelet stängts och jämför med ett nytt test.", null)
             }
             private fun tool(name: String, args: String = "{}") = AssistantProtocol.completedResponse(JSONObject().put("status", "completed")
@@ -105,9 +110,11 @@ class ControllerTestUiTest {
         }
         val model = GameAssistantViewModel(app, provider, store)
         var lifecycle: Lifecycle? = null
+        var gameView: android.view.View? = null
         var gameDisposed = false
         compose.setContent {
             lifecycle = LocalLifecycleOwner.current.lifecycle
+            gameView = androidx.compose.ui.platform.LocalView.current
             MaterialTheme {
                 Box {
                     DisposableEffect(Unit) { onDispose { gameDisposed = true } }
@@ -122,7 +129,7 @@ class ControllerTestUiTest {
         idle(model)
         compose.onNodeWithTag("open-in-game-assistant").performClick()
         compose.onNodeWithTag("controller-test-open").performClick()
-        compose.onNodeWithTag("controller-test-start").performScrollTo().performClick()
+        compose.onNodeWithTag(if (liveMonitor) "controller-live-start" else "controller-test-start").performScrollTo().performClick()
         compose.onNodeWithTag("in-game-assistant-panel").assertDoesNotExist()
         compose.onNodeWithTag("controller-test-overlay").assertIsDisplayed()
         assertEquals(Lifecycle.State.RESUMED, lifecycle!!.currentState)
@@ -135,9 +142,22 @@ class ControllerTestUiTest {
             ShadowSystemClock.advanceBy(Duration.ofSeconds(21))
         }
         compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithText("Kontrolltest klart").assertIsDisplayed()
+        if (liveMonitor) {
+            assertTrue(ControllerInputTrace.summary(game)!!.active) // Outlasts the original 20-second probe.
+            compose.onNodeWithTag("controller-overlay-size").performClick()
+            compose.onNodeWithText("Visa mer").assertIsDisplayed().performClick()
+            compose.onNodeWithText("Kontroll 1 · P1 · BUTTON_A=0").assertIsDisplayed()
+            compose.runOnIdle {
+                val view = gameView!!.rootView
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(bitmap))
+                File("build/assistant-overlay-$orientation.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                bitmap.recycle()
+            }
+        } else compose.onNodeWithText("Kontrolltest klart").assertIsDisplayed()
         assertEquals(0, requests) // Ending a probe must not consume the user's plan.
-        compose.onNodeWithText("Granska testet").performClick()
+        compose.onNodeWithText(if (liveMonitor) "Avsluta och granska" else "Granska testet").performClick()
+        assertFalse(ControllerInputTrace.summary(game)!!.active)
         compose.onNodeWithTag("controller-test-analyze").performScrollTo().assertIsDisplayed().assertIsEnabled()
         compose.mainClock.advanceTimeBy(500)
         compose.runOnIdle {
@@ -149,7 +169,7 @@ class ControllerTestUiTest {
         }
         compose.onNodeWithTag("controller-test-analyze").performClick()
         idle(model)
-        assertEquals(5, requests)
+        assertEquals(3, requests)
         assertTrue(model.state.value.history.single().user.contains("Ingen input når spelet"))
         assertNotNull(model.state.value.proposal)
         compose.onNodeWithText("Tillämpa").performScrollTo().assertIsNotEnabled()

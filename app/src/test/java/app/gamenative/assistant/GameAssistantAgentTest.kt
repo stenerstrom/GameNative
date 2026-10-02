@@ -39,6 +39,28 @@ class GameAssistantAgentTest {
     private val fileEdit = """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b","replacements":[{"old_text":"FPS=60","new_text":"FPS=30"}],"reason":"Test FPS cap"}"""
     private val modAction = """{"mod_id":"local_test","action":"install","plan_id":"local_plan","reason":"Test"}"""
 
+    @Test fun combinedInputReadAllowsOneReviewedProposalWithoutThreeRedundantReads() = runBlocking {
+        val tools = Tools()
+        val replies = ArrayDeque(listOf(call("read_input_route"), call("propose_settings", proposal), AssistantProtocol.Reply("Granska förslaget", null)))
+        var calls = 0
+        val reply = GameAssistantAgent.run("m", "Ingen input", emptyList(), tools, { calls++; replies.removeFirst() }, {})
+        assertEquals(3, calls)
+        assertEquals(listOf("read_input_route"), tools.reads)
+        assertNotNull(reply.proposal)
+    }
+
+    @Test fun failedCombinedReadDoesNotAuthorizeAProposal() = runBlocking {
+        var prepared = false
+        val tools = object : GameAssistantAgent.Tools {
+            override suspend fun read(name: String): String = error("Game launch changed")
+            override suspend fun prepare(proposal: ConfigProposal): List<String> { prepared = true; return emptyList() }
+            override fun hasBackup() = false
+        }
+        val replies = ArrayDeque(listOf(call("read_input_route"), call("propose_settings", proposal), AssistantProtocol.Reply("Läs igen", null)))
+        val reply = GameAssistantAgent.run("m", "Ingen input", emptyList(), tools, { replies.removeFirst() }, {})
+        assertFalse(prepared); assertNull(reply.proposal)
+    }
+
     @Test fun modToolsNeedTheirOwnPermissionAndDoNotAdvertiseUnconnectedCapabilities() = runBlocking {
         val tools = Tools()
         val request = GameAssistantAgent.request("m", "help", emptyList())

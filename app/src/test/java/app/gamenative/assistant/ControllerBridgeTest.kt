@@ -64,8 +64,29 @@ class ControllerBridgeTest {
         return WinHandler(mock<XServer>(), mock<XServerRendererView>().also { whenever(it.context).thenReturn(app) })
     }
 
+    @Test fun inputRouteCannotReadAnotherGamesOrAnotherLaunchesBridge() {
+        val bridge = bridge()
+        val token = LiveGameSession.buffer.begin("STEAM_42")
+        WinHandler::class.java.getDeclaredField("assistantSessionToken").apply { isAccessible = true; set(bridge, token) }
+        val server = mock<XServer>().also { whenever(it.winHandler).thenReturn(bridge) }
+        val view = mock<XServerRendererView>().also { whenever(it.getxServer()).thenReturn(server) }
+        val previousView = app.gamenative.PluviaApp.xServerView
+        try {
+            app.gamenative.PluviaApp.xServerView = view
+            assertTrue(ControllerInputRoute.snapshot("STEAM_42").getBoolean("available"))
+            assertFalse(ControllerInputRoute.snapshot("STEAM_99").getBoolean("available"))
+            assertTrue(ControllerInputRoute.snapshot("STEAM_99").isNull("runtimeBridge"))
+            LiveGameSession.buffer.begin("STEAM_42")
+            assertFalse(ControllerInputRoute.snapshot("STEAM_42").getBoolean("available"))
+            assertTrue(ControllerInputRoute.snapshot("STEAM_42").isNull("runtimeBridge"))
+        } finally { app.gamenative.PluviaApp.xServerView = previousView }
+    }
+
     @Test fun actualDiscoveryRepliesRespectEveryApiAndLiveSetterWithoutRestart() {
         val bridge = bridge()
+        val token = LiveGameSession.buffer.begin("STEAM_42")
+        ControllerInputTrace.buffer.start("STEAM_42", token, ControllerTraceBuffer.Mode.LIVE)
+        WinHandler::class.java.getDeclaredField("assistantSessionToken").apply { isAccessible = true; set(bridge, token) }
         val profile = mock<ControlsProfile>().also {
             ControlsProfile::class.java.getDeclaredField("id").apply { isAccessible = true; setInt(it, 7) }
             whenever(it.isVirtualGamepad).thenReturn(true)
@@ -89,6 +110,9 @@ class ControllerBridgeTest {
         }
         bridge.setPreferredInputApi(WinHandler.PreferredInputApi.XINPUT)
         assertTrue(discovery(true)); assertFalse(discovery(false))
+        val denied = ControllerInputTrace.summary("STEAM_42")!!.clients.single()
+        assertEquals("DirectInput", denied.api); assertFalse(denied.allowed)
+        assertEquals(42, denied.processId); assertEquals(10001, denied.port)
         bridge.setPreferredInputApi(WinHandler.PreferredInputApi.DINPUT)
         assertFalse(discovery(true)); assertTrue(discovery(false))
         bridge.setPreferredInputApi(WinHandler.PreferredInputApi.BOTH)
@@ -102,6 +126,51 @@ class ControllerBridgeTest {
         bridge.setPreferredInputApi(WinHandler.PreferredInputApi.AUTO)
         assertTrue(discovery(false)) // AUTO history resets on an API change.
         assertEquals(12, bridge.assistantControllerStatus.getInt("legacyDiscoveryCount"))
+    }
+
+    @Test fun liveObservationAndWireSnapshotsNeverChangeControlBytesConnectionOrNotifyCount() {
+        val bridge = bridge()
+        val token = LiveGameSession.buffer.begin("STEAM_42")
+        WinHandler::class.java.getDeclaredField("assistantSessionToken").apply { isAccessible = true; set(bridge, token) }
+        RandomAccessFile(folder.newFile(), "rw").use { file ->
+            file.setLength(64)
+            val memory = file.channel.map(FileChannel.MapMode.READ_WRITE, 0, 64).apply { order(ByteOrder.LITTLE_ENDIAN) }
+            WinHandler::class.java.getDeclaredField("gamepadBuffer").apply { isAccessible = true; set(bridge, memory) }
+            fun bytes() = ByteArray(64) { memory.get(it) }
+            val state = GamepadState().apply { setPressed(1, true); thumbLX = 0.5f; triggerL = 1f }
+            bridge.sendVirtualGamepadState(state)
+            val original = bytes()
+            val notifications = ShadowControllerWinHandlerNative.notifications
+            ControllerInputTrace.buffer.start("STEAM_42", token, ControllerTraceBuffer.Mode.LIVE)
+            memory.position(5)
+            repeat(40) {
+                val data = bridge.assistantInputRoute
+                val p1 = data.getJSONArray("buffers").getJSONObject(0)
+                assertEquals("gamepad_shm/gamepad.mem", p1.getString("destination"))
+                assertEquals("B", p1.getJSONArray("pressedButtons").getString(0))
+                assertEquals(16383, p1.getJSONObject("encodedAxes").getInt("LX"))
+                assertEquals(32767, p1.getJSONObject("encodedAxes").getInt("LT"))
+                assertTrue(p1.getBoolean("connected"))
+                assertFalse(data.getJSONArray("buffers").getJSONObject(1).getBoolean("bufferReady"))
+                ControllerInputTrace.view("STEAM_42")
+            }
+            assertArrayEquals(original, bytes())
+            assertEquals(5, memory.position())
+            assertEquals(notifications, ShadowControllerWinHandlerNative.notifications)
+            bridge.sendVirtualGamepadState(state) // The observer must still allow normal delivery.
+            assertArrayEquals(original, bytes())
+            val failed = ControllerInputTrace.summary("STEAM_42")!!.latestStages.first { it.stage == ControllerTraceBuffer.Stage.NATIVE_WAKE }
+            assertEquals(0f, failed.values["sequenceAdvanced"]!!, 0f)
+            ShadowControllerWinHandlerNative.wake = { memory.putInt(0, memory.getInt(0) + 1) }
+            bridge.sendVirtualGamepadState(state)
+            val ready = ControllerInputTrace.summary("STEAM_42")!!.latestStages.first { it.stage == ControllerTraceBuffer.Stage.NATIVE_WAKE }
+            assertEquals(1f, ready.values["sequenceAdvanced"]!!, 0f)
+            ControllerInputTrace.finish("STEAM_42")
+            state.setPressed(1, false)
+            bridge.sendVirtualGamepadState(state)
+            assertEquals(0, memory.get(17).toInt()) // Stopping the monitor cannot swallow button-up.
+            assertEquals(1, memory.getInt(40))
+        }
     }
 
     @Test fun reconnectDisconnectsSharedMemoryBlocksWritesAndReturnsNeutralConnectedState() {

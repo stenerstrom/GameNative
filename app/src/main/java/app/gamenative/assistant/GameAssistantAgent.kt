@@ -9,7 +9,7 @@ import org.json.JSONObject
 object GameAssistantAgent {
     val FILE_TOOLS = setOf("list_game_files", "read_game_file", "propose_file_edit")
     val MOD_TOOLS = setOf("read_mods", "inspect_mod", "read_mod_document", "check_mod_health", "propose_mod_action")
-    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS
+    val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS
     interface Tools {
         suspend fun read(name: String): String
         suspend fun prepare(proposal: ConfigProposal): List<String>
@@ -41,7 +41,7 @@ object GameAssistantAgent {
                 saved settings. An existing durable undo backup does NOT block these separate live proposals. Mixed proposals
                 containing SDL, Steam Input or other settings cannot be applied live. Never say all controller changes require restart.
                 For changes use propose_settings with catalog IDs and allowed values, after reading configuration in this turn
-                (read_configuration or the combined read_input_route).
+                (read_configuration, read_input_route or read_optimization_context).
                 Propose only related changes needed for the user's request. You CAN change the supported game settings via the app's
                 approval card: it shows before/after values, Apply and undo. Do not only give manual instructions for supported settings.
                 A successful propose_settings result means awaiting approval, NOT applied. Never claim a fix has already been applied.
@@ -87,6 +87,26 @@ object GameAssistantAgent {
                 A DirectInput mapper is separate from enabling the API. Detected hardware does not prove input works inside the game.
                 Preserve already-enabled APIs when appropriate. A frame cap cannot create missing FPS. Lower resolution can reduce GPU
                 load but may not affect a game's own resolution override. No performance claims without comparable measurements.
+                For optimization, start with read_optimization_context. It includes current configuration and editableSettings,
+                device hardware, this game's saved FPS goal, baseline/latest recorded experiments, comparison metadata and live data.
+                It qualifies as reading configuration; avoid redundant reads. The user's explicit goal in the message takes precedence
+                over a saved default. Never transfer one game's supposedly best settings to every game or silently alter all games.
+                First explain the current situation, identify ONE useful performance experiment (a small related group such as
+                enabling a limiter with its target is OK), and use the existing proposal tools and undo. Preserve working controller,
+                audio and unrelated settings for performance-only requests. Box64 presets do not affect FEX; never guess installed
+                driver/runtime choices outside the editable catalog. If another capability is missing, say which and use existing UI.
+                Optimization measurements are manual: Optimera > choose goal and a repeatable scene > Mät 60 sekunder in the running
+                game's panel. Five seconds return to gameplay, then sixty seconds recorded locally from the existing render hook.
+                No debug run, autonomous game control or model call is needed to record. The first usable run becomes a baseline;
+                the user can set a later run as reference. Unusable runs stay visible and must not support performance claims.
+                Statistics are TWO-SECOND windows sampled at least two seconds apart: meanWindowP95Ms is a MEAN of window p95, not whole-run p95 or
+                1% low. Missing CPU/GPU sensors are unknown; CPU usage can be device-wide and does not by itself identify a bottleneck.
+                comparison.eligible only means known metadata matches. Inspect issues, scene, settings differences and sensor gaps.
+                In-game graphics, game version, mods, brightness and exact gameplay are not verified. Ask for the same route and
+                conditions and repeat trials before claiming improvement. Never treat loading screens or menus as representative play.
+                If no measurement exists, offer a cautious initial review, then recommend a baseline before experiments. If a goal
+                already appears met, avoid speculative changes. After an applied change, compare another run before keeping or undoing
+                it. A frame cap is pacing, not generated performance; frame-generation/stride changes are excluded from this comparison.
                 Tools are restricted to this selected game. No shell, arbitrary paths, driver/runtime installation, Bluetooth pairing,
                 player-slot writes, PC-game UI automation, account credentials or other apps. Explain the specific missing capability
                 when needed, then give the next useful step. You are a native tool-using agent, not an installed Codex app-server.
@@ -125,6 +145,7 @@ object GameAssistantAgent {
                     .put("strict", true).put("parameters", JSONObject("""{"type":"object","properties":{},"required":[],"additionalProperties":false}""")))
             }
             readTool("read_configuration", "Read current settings, device context, available editable setting IDs/values and undo availability for the selected game.")
+            readTool("read_optimization_context", "FIRST choice for optimizing this game: combined settings/editable catalog, hardware, saved FPS goal, baseline/latest manual measurements and conditional comparison, plus live metrics/log. Qualifies as reading configuration. No automatic testing or setting changes; ignore unusable or unmatched runs when assessing improvements.")
             readTool("read_capabilities", "Read which game, file and mod capabilities are actually connected and enabled. Never assume general desktop Codex tools exist on Android.")
             readTool("read_game_log", "Read a bounded, secret-filtered log belonging to this game. Missing logs are reported; no debug run is required.")
             readTool("read_performance", "Read the active launch's performance when available; otherwise saved samples and last-session metadata. Check freshness. Not a controlled benchmark.")
@@ -140,7 +161,7 @@ object GameAssistantAgent {
             parameters.getJSONObject("properties").getJSONObject("changes").getJSONObject("items").getJSONObject("properties")
                 .getJSONObject("setting").put("enum", JSONArray(GameSettingCatalog.settings.map { it.id }))
             functions.put(JSONObject().put("type", "function").put("name", "propose_settings").put("strict", true)
-                .put("description", "Stage 1–8 related validated setting changes for review, after read_configuration or read_input_route. Values are strings from editableSettings; never arbitrary paths/commands. Nothing is applied yet.")
+                .put("description", "Stage 1–8 related validated setting changes for review, after read_configuration, read_input_route or read_optimization_context. Values are strings from editableSettings; never arbitrary paths/commands. Nothing is applied yet.")
                 .put("parameters", parameters))
             if (fileAccess) {
                 fun fileTool(name: String, description: String, schema: String) {
@@ -194,6 +215,7 @@ object GameAssistantAgent {
             for (i in 0 until reply.output.length()) input.put(reply.output.get(i))
             progress(when (call.name) {
                 "read_configuration" -> "Läser spelinställningar…"
+                "read_optimization_context" -> "Läser spelets mål, inställningar och mätningar…"
                 "read_game_log" -> "Granskar spelloggen…"
                 "read_performance" -> "Granskar prestandadata…"
                 "read_live_session" -> "Läser den pågående spelomgången…"
@@ -220,6 +242,7 @@ object GameAssistantAgent {
                     "read_capabilities" -> {
                         require(call.arguments.length() == 0)
                         JSONObject().put("settings", "${GameSettingCatalog.settings.size} supported settings; read config then propose_settings")
+                            .put("optimization", "read_optimization_context combines this game's saved FPS goal, configuration/catalog, hardware and manual 60-second experiment summaries. Optimera is available for every installed game's assistant. User initiates each measurement and approves each change. No autonomous all-library optimization or proven improvement without comparable repeated gameplay.")
                             .put("diagnostics", "read_input_route first for controller issues: one combined settings/catalog, controllers, mappings, per-player live bridge bytes and bounded input trace/legacy requests read. Not proof of PC-game consumption. read_live_session for launch FPS/frame times/sensors/filtered process output with freshness; saved logs/performance otherwise.")
                             .put("liveControllerChanges", "Propose only inputApi/directInputMapper for the local Prova bryggan live and Ångra liveförsök buttons. Runtime legacy bridge only, no saved config/SDL startup changes; existing durable undo stays. Kontroll och input offers a read-only live monitor and a separate user-requested bridge reconnect without restart. Inspect runtime capabilities first.")
                             .put("fileAccess", tools.fileAccess).put("modAccess", tools.modAccess)
@@ -256,7 +279,7 @@ object GameAssistantAgent {
                     }
                     else -> {
                         require(call.name in TOOL_NAMES && call.arguments.length() == 0) { "Unsupported tool or arguments" }
-                        tools.read(call.name).also { if (call.name in setOf("read_configuration", "read_input_route")) readConfiguration = true }
+                        tools.read(call.name).also { if (call.name in setOf("read_configuration", "read_input_route", "read_optimization_context")) readConfiguration = true }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e

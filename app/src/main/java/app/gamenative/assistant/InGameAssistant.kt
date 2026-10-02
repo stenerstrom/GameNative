@@ -50,8 +50,12 @@ fun AssistantQuickMenuButton(game: String?, onDismissMenu: () -> Unit) {
 @Composable
 fun InGameAssistantHost(game: String?) {
     if (!BuildConfig.AI_ASSISTANT_ENABLED || game == null) return
-    DisposableEffect(game) { onDispose { InGameAssistantUi.close(game); ControllerTestUi.clear(game) } }
+    DisposableEffect(game) { onDispose {
+        InGameAssistantUi.close(game); ControllerTestUi.clear(game); GameOptimizationUi.clear(game)
+        GameOptimizationSession.stop(game, "Spelvyn stängdes.")
+    } }
     ControllerTestOverlay(game)
+    GameOptimizationOverlay(game)
     if (!InGameAssistantUi.isOpenFor(game)) return
     val context = LocalContext.current
     val model: GameAssistantViewModel = viewModel(key = "in-game-assistant:$game",

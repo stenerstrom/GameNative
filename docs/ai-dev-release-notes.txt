@@ -1,12 +1,12 @@
-GameNative AI Dev 1.2.1-ai-dev.12 – input live och samlad Codex-diagnostik
+GameNative AI Dev 1.2.1-ai-dev.13 – optimering per spel
 
-• Nytt: Quick Menu → Codex i spelet → Kontroll och input → Visa input live. En liten panel visar senaste Android-signaler, valda mappningar, spelarplatsens bryggskrivningar och native-signal, med ålder per steg. Kan minimeras och stoppas; avslutas senast efter fem minuter. Det korta 20-sekunderstestet finns kvar.
-• Visa destinationer och API visar kontrollbryggans aktuella data per spelarplats. Observationen kan även visa äldre Wine-klienters XInput/DirectInput-begäran, rapporterat process-ID, lokal UDP-destination och sändningsfel.
-• Analysera input med Codex använder ett samlat verktyg för konfiguration, kontroller, mappningar, brygga och observation. Agenten får samma underlag utan tre separata läsanrop. Ändringsförslag granskas och tillämpas som tidigare.
-• Visningen läser bara. Ingen simulerad input, profiländring eller ändring av anslutningsflaggor. Inget skickas till modellen förrän du ber om analys med spelåtkomst. Inga skrivna texter registreras.
+• Ny Optimera-knapp i varje spels Codex-vy, från biblioteket och under spel. Välj 30, 40 eller 60 FPS som mål. Mål och mätningar sparas separat för varje spel, även spel som läggs till senare.
+• Mät 60 sekunder: ange en återupprepningsbar scen, återgå till spelet efter fem sekunders nedräkning och spela samma runda. Första giltiga mätningen blir referens. Ingen AI-användning eller inställningsändring sker under mätningen.
+• Be Codex optimera läser mål, konfiguration, hårdvara, sparade försök och livedata i ett samlat verktyg. Agenten ska föreslå ett motiverat försök åt gången och bevara fungerande kontrollinställningar. Befintlig tillämpning, säkerhetskopia och ångra återanvänds.
+• Jämför nästa mätning med referensen. Ofullständiga försök och skillnader i kända testförhållanden markeras. Bildtid p95 är ett fönstersnitt, inte hela minutens percentil. Liknande metadata bevisar inte att scenen, moddar eller grafikval inne i spelet var identiska; upprepa innan du drar slutsatser.
 
-Data från appen visar inte säkert att PC-spelet har behandlat knappen. Sekvensökning och lyckad sändning är inga mottagningskvitton. Noll äldre Wine-klienter kan vara normalt när spelet använder SDL. Rapporterat process-ID är inte verifierat som spelets process.
+Använd Quick Menu → Codex i spelet → Optimera → Mät 60 sekunder. Vanlig spelstart krävs, utan diagnostikläge eller Wine/Box64-debugloggning. Paus, bakgrund, öppnad chatt och spelstopp avbryter försöket. Bildgenerering/ändrad mätstride stöds inte i denna jämförelse. Mätningen fungerar lokalt utan separat dator.
 
-Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 32. Avinstallera inte och rensa inte appdata. Rättningarna av kontrollbryggan i ai-dev.11 följer med.
+Avsluta spelet och uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket och signerare; versionskod 33. Avinstallera inte och rensa inte data. Kontrollbryggans rättningar och livevisningen följer med.
 
-231 tester godkända och APK-byggning lyckad. Avläsningarnas frånvaro av inputändringar, knappsläpp, tidsgränser och flödet från livepanel till granskat Codex-förslag är testade lokalt. UI granskat i båda skärmorienteringarna. De 32 native-biblioteken är oförändrade. Verklig kontrollrespons och JNI/Wine-överföring behöver provas på MagicPad; ingen fysisk Android-enhet var ansluten. Molnets svarstid är inte uppmätt.
+244 tester godkända och APK-bygge lyckat. UI-flödet testat och granskat i stående och liggande läge med syntetiska mätdata och simulerade AI-svar. Ingen prestandaförbättring i Bloodstained eller andra spel är ännu uppmätt på MagicPad; det återstår att verifiera på enheten.

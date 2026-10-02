@@ -4,6 +4,40 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: optimering per spel
+
+**1.2.1-ai-dev.13**, Android `versionCode=33`, lägger till **Optimera** i varje spels assistent, både från biblioteket och i spelet. Samma flöde är tillgängligt för nyinstallerade spel från de källor som redan använder GameNatives gemensamma spelvy; inget separat AI-stöd behöver byggas per titel. Mål och mätningar delas inte mellan spel. Modellen anropas när användaren begär analys, inte vid import eller under spelmätningen.
+
+Användaren rapporterade inför denna version att kontrollen åter fungerar i **Bloodstained**. Det är enhetsåterkoppling för det spelet, inte verifiering av alla spel. Denna uppdatering ändrar inte kontrollmappning, inputbrygga eller native-bibliotek. Vid prestandauppdrag instrueras agenten att bevara fungerande kontroll- och ljudinställningar.
+
+### Arbetsgång på MagicPad
+
+1. Avsluta spelet och uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.13-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-33/GameNative-AI-Dev-1.2.1-ai-dev.13.apk) ovanpå AI Dev. Samma paket och signerare; avinstallera inte.
+2. Öppna ett installerat spels assistent och tryck **Optimera**. Välj **30, 40 eller 60 FPS**. Valet är ett analysmål och ändrar inte FPS-begränsaren. **Be Codex optimera** ger en första genomgång av aktuell konfiguration, emulator, tillgänglig hårdvaruinformation och tidigare mätningar. Spelåtkomst och ChatGPT-anslutning behövs för AI-analysen.
+3. Starta spelet normalt. Gå till en återupprepningsbar scen/sparpunkt. Öppna **Quick Menu → Codex i spelet → Optimera**, ange scenen och tryck **Mät 60 sekunder**. Chatten stängs; fem sekunders nedräkning låter dig återgå till spelet. Spela samma runda i en minut. Den lilla panelen kan avbryta mätningen eller öppna resultatet när den är klar. Ingen AI-fråga skickas under mätningen.
+4. Den första giltiga mätningen sparas som referens. Begär analys med **Be Codex optimera**. Agenten ska föreslå ett motiverat försök åt gången från den befintliga inställningskatalogen, eller stödda spelfiler när separat filåtkomst är aktiverad. Förslag tillämpas och ångras genom samma granskade flöde som tidigare. Sparade prestandaändringar kräver stoppat spel.
+5. Starta med den ändrade konfigurationen och mät samma scen igen. Behåll spelversion, moddar, grafikval inne i spelet, ljusstyrka, laddning, energiläge och starttemperatur så lika som möjligt. Jämför FPS och bildtider och upprepa före slutsats. Välj att behålla eller ångra inställningsförsöket i chatten. **Använd senaste som ny referens** ändrar bara vilken mätning som jämförs; det tillämpar inga inställningar och tar inte bort inställningsbackupen.
+
+Mätning kräver vanlig spelstart utan debug run/diagnostikläge eller aktiverad Wine/Box64-debugloggning. Om startkonfigurationen har ändrats krävs en ny spelstart för att resultatet ska kunna knytas till den. Detta är en guidad testcykel som fungerar helt på Android; inget separat datorsteg behövs. Automatiskt spelande, testloopar, global ändring av alla spel och automatisk hämtning av drivrutiner ingår inte.
+
+### Mätmetod och gränser
+
+Appens befintliga `PerformanceMetricsCollector` används; ingen extra renderings- eller inputslinga införs. Den mäter normalt ett tvåsekundersfönster var 500 ms. Optimeringsmätningen väljer fönster med minst två sekunders avstånd på monoton klocka och börjar först när nedräkningen och ett helt nytt fönster passerat. Högst 30 fönster sparas som sammanfattning. Minst 27 giltiga fönster krävs, motsvarande 54 av 60 sekunders underlag. UI visar faktisk täckning, FPS-fönstersnitt och **medelvärdet av fönstrens p95**. Det är inte hela minutens p95 eller ett beräknat ”1% low”.
+
+Paus, bakgrund, återöppnad chatt, stängd spelvy och avslutad spelomgång avbryter mätningen. Ofullständiga resultat behålls med orsak och används inte som godkänd referens. Föråldrade/ogiltiga värden och data från andra spelomgångar avvisas. Bildgenerering eller annan frame-stride än 1 gör resultatet olämpligt för denna jämförelse. Frånvarande sensorer rapporteras som okända, inte som noll belastning; CPU-belastningen kan avse hela enheten.
+
+Startkonfigurationen fångas efter att startkomponenterna installerat/sparat runtime-metadata. En kanonisk SHA-256 identifierar konfigurationen utan att skicka privata miljövärden; ändrad konfiguration upptäcks före och efter mätning. Sessionsstatistik och namn påverkar inte identiteten. Sammanfattningarna innehåller bara filtrerade inställningar, numeriska mätdata och användarens filtrerade scenbeskrivning. Atomiskt skrivna filer ligger i appens privata `noBackupFilesDir/assistant/optimization/`, högst åtta försök per spel inklusive vald referens. Mål, referens och mätningar överlever en normal APK-uppdatering.
+
+Jämförelsen kräver samma mål, scenetikett, enhet, appversion, Android-version, skärmuppdatering, laddnings-/strömläge och observerad strömprofil. Kända skillnader i starttemperatur över fem grader flaggas. Saknade sensorer, ändringar inne i PC-spelet, modfiler, spelversion, ljusstyrka och exakt spelad runda verifieras inte automatiskt. Matchande metadata är därför villkorligt underlag, inte bevis på orsak eller en garanterad FPS-vinst. Ny appversion kräver nya referensdata för direkt jämförelse.
+
+### Codex-integrering och verifiering
+
+`read_optimization_context` läser spelmålet, konfiguration och tillåtna inställningar, SoC/RAM-information, mätningar, jämförelsens begränsningar och tillgänglig livedata i ett verktygsanrop. Det uppfyller kravet på konfigurationsläsning före `propose_settings`. Inställningsläsningar öppnar nu inte gamla loggarkiv i onödan. Modellen ska skilja Box64 från FEX, inte gissa installerade drivrutiner, och inte kalla ett resultat bättre när mätningar saknas eller inte kan jämföras. Befintlig tillämpning, backup och återställning återanvänds.
+
+**244 tester godkända, inga fel eller överhoppade tester**, samt lyckat APK-bygge. Nya tester omfattar tidsgränser, mätfönster, ogiltiga data, avbrott, konfigurationsidentitet, spelisolering, begränsad historik och jämförelsekrav. Robolectric kör den riktiga anslutningen från `LiveGameSession.metrics` till privat resultatlagring. UI-tester i båda orienteringarna kör målval → lokal mätning → sparad referens → tre simulerade modellomgångar → granskat förslag; inga AI-anrop görs före användarens analys och kontrollkonfigurationens bytes förblir oförändrade. Skärmbilderna är granskade.
+
+Resultat sparas under `build/ai-dev/verification/game-optimization/`. Mätvärdena i tester och skärmbilder är syntetiska. Verklig frametidsinsamling och eventuella förbättringar i Bloodstained eller andra MagicPad-spel är **inte uppmätta i denna byggmiljö**. Molnagentens kvalitet och faktiska svarstid kräver fortsatt prov på enheten. Nästa utvidgning bör utgå från dessa spelbundna mätningar: biblioteksöversikt, fler säkert validerade runtime-/grafikalternativ och bättre koppling till spelets egna grafikfiler, med samma granskning och ångra.
+
 ## Uppdatering 2026-10-02: se inputens signalväg och analysera den med Codex
 
 **1.2.1-ai-dev.12**, Android `versionCode=32`, lägger till **Visa input live** under **Quick Menu → Codex i spelet → Kontroll och input**. Den lilla panelen visar de senaste Android-signalerna, valda profilmappningar, skrivningar till spelarplatsens kontrollbrygga och om native-väckningen ändrade sekvensräknaren. Varje steg har en ålder. Panelen kan minimeras och avslutas med **Avsluta och granska**. Det tidigare 20-sekunderstestet finns kvar.

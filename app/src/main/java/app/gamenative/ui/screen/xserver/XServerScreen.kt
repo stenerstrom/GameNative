@@ -4419,6 +4419,8 @@ private fun setupXEnvironment(
     try {
         immersiveHooks?.windowsVr?.beforeGuestProcessStart()
         environment.startEnvironmentComponents()
+        // Capture after launcher extraction has persisted runtime-version metadata.
+        app.gamenative.assistant.GameOptimizationSession.attach(context, appId, container, debugRun || diagnostics || captureLogs)
         immersiveHooks?.windowsVr?.onEnvironmentStarted()
         if (container != null && !bootToContainer) {
             CoroutineScope(Dispatchers.IO).launch { GameFileDetection.ensure(context, container) }

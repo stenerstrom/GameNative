@@ -123,18 +123,28 @@ class LiveSessionBuffer(private val wallTime: () -> Long, private val elapsedTim
 object LiveGameSession {
     internal val buffer = LiveSessionBuffer(System::currentTimeMillis, SystemClock::elapsedRealtime)
     @JvmStatic fun begin(game: String, debugRun: Boolean) {
-        if (BuildConfig.AI_ASSISTANT_ENABLED) { LiveControllerChanges.clear(); ControllerInputTrace.buffer.reset(); buffer.begin(game, debugRun) }
+        if (BuildConfig.AI_ASSISTANT_ENABLED) { GameOptimizationSession.end(); LiveControllerChanges.clear(); ControllerInputTrace.buffer.reset(); buffer.begin(game, debugRun) }
     }
     @JvmStatic fun token() = buffer.token()
     @JvmStatic fun line(token: String?, line: String) { buffer.line(token, line) }
-    @JvmStatic fun paused(token: String?, paused: Boolean) { buffer.paused(token, paused) }
+    @JvmStatic fun paused(token: String?, paused: Boolean) {
+        buffer.paused(token, paused)
+        if (paused) GameOptimizationSession.interrupt(token, "Spelet pausades.")
+    }
     fun collecting(token: String?, collecting: Boolean) {
         if (!collecting) ControllerInputTrace.background(token)
+        if (!collecting) GameOptimizationSession.interrupt(token, "Appen gick i bakgrunden eller mätningen pausades.")
         buffer.collecting(token, collecting)
     }
-    fun metrics(token: String?, snapshot: MetricsSnapshot, stride: Int) { buffer.metrics(token, snapshot, stride) }
-    fun assistant(game: String, visible: Boolean) { buffer.assistant(game, visible) }
-    fun end() { ControllerInputTrace.endLaunch(token()); buffer.end(); LiveControllerChanges.clear() }
+    fun metrics(token: String?, snapshot: MetricsSnapshot, stride: Int) {
+        buffer.metrics(token, snapshot, stride)
+        GameOptimizationSession.sample(token, snapshot, stride)
+    }
+    fun assistant(game: String, visible: Boolean) {
+        buffer.assistant(game, visible)
+        if (visible) GameOptimizationSession.stop(game, "Chatten öppnades under mätningen.")
+    }
+    fun end() { GameOptimizationSession.end(); ControllerInputTrace.endLaunch(token()); buffer.end(); LiveControllerChanges.clear() }
     fun view(game: String) = buffer.view(game)
     fun read(game: String) = view(game)?.json() ?: """{"available":false,"note":"No active launch for the selected game. Historical reports are separate; start the game to read live data."}"""
 }

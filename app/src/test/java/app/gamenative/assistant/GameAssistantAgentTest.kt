@@ -49,6 +49,17 @@ class GameAssistantAgentTest {
         assertNotNull(reply.proposal)
     }
 
+    @Test fun optimizationContextQualifiesAsConfigurationReadAndStillOnlyStagesAProposal() = runBlocking {
+        val tools = Tools()
+        val replies = ArrayDeque(listOf(call("read_optimization_context"), call("propose_settings", """{"changes":[{"setting":"screenSize","value":"1280x720"}],"reason":"Test GPU load with the same scene"}"""), AssistantProtocol.Reply("Granska försöket", null)))
+        var request: JSONObject? = null
+        val reply = GameAssistantAgent.run("m", "Optimera", emptyList(), tools, { request = it; replies.removeFirst() }, {})
+        assertEquals(listOf("read_optimization_context"), tools.reads)
+        assertEquals(setOf("screenSize"), reply.proposal!!.settings.keys)
+        assertTrue(request!!.getJSONArray("input").toString().contains("awaiting_user_approval"))
+        assertFalse(tools.backup)
+    }
+
     @Test fun failedCombinedReadDoesNotAuthorizeAProposal() = runBlocking {
         var prepared = false
         val tools = object : GameAssistantAgent.Tools {

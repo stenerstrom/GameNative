@@ -60,6 +60,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     Text("${if (inGame) "Codex i spelet" else "Spelassistent"} · ${state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "ChatGPT"}",
                         style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
+                GameOptimizationButton(model, inGame)
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Alternativ") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

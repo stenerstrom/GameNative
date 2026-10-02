@@ -2,6 +2,7 @@ package app.gamenative.assistant
 
 import android.content.Context
 import android.os.Build
+import android.view.InputDevice
 import app.gamenative.service.SteamService
 import app.gamenative.utils.ContainerUtils
 import app.gamenative.utils.DebugReportUtils
@@ -11,11 +12,58 @@ import java.io.InputStream
 import java.util.zip.GZIPInputStream
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** The game ID is fixed by the Android screen, never supplied by the model. */
-class GameAssistantTools(private val context: Context, private val appId: String) {
+class GameAssistantTools(private val context: Context, private val appId: String, private val gameTitle: String = appId) : GameAssistantAgent.Tools {
     init { require(appId.matches(Regex("[A-Za-z0-9_-]{1,160}"))) { "Invalid game ID" } }
     data class Snapshot(val hash: String, val text: String)
+    var preparedHash: String? = null
+        private set
+    var preparedChanges: List<String> = emptyList()
+        private set
+    private var inspectedHash: String? = null
+
+    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList() }
+    override suspend fun read(name: String): String {
+        if (name == "inspect_controllers") return withContext(Dispatchers.Main) {
+            val manager = com.winlator.inputcontrols.ControllerManager.getInstance()
+            val devices = JSONArray()
+            InputDevice.getDeviceIds().take(64).mapNotNull { InputDevice.getDevice(it) }.filter {
+                !it.isVirtual && (it.supportsSource(InputDevice.SOURCE_GAMEPAD) || it.supportsSource(InputDevice.SOURCE_JOYSTICK))
+            }.forEach { device ->
+                val slot = manager.getSlotForDevice(device.id)
+                devices.put(JSONObject().put("name", DiagnosticRedactor.text(device.name).take(120))
+                    .put("player", if (slot in 0..3) slot + 1 else JSONObject.NULL))
+            }
+            JSONObject().put("detectedControllers", devices)
+                .put("enabledPlayerSlots", JSONArray((0..3).filter { manager.isSlotEnabled(it) }.map { it + 1 }))
+                .put("note", "Android detection and current GameNative slot state only. This does not test buttons inside the game or inspect Bluetooth pairing. No serials, descriptors or addresses included.").toString()
+        }
+        return withContext(Dispatchers.IO) {
+            require(name in setOf("read_configuration", "read_game_log", "read_performance"))
+            val snapshot = readDiagnostics()
+            val data = JSONObject(snapshot.text)
+            val result = JSONObject().put("game", appId).put("title", DiagnosticRedactor.text(gameTitle).take(200))
+            val keys = when (name) {
+                "read_configuration" -> {
+                    inspectedHash = snapshot.hash
+                    result.put("undoAvailable", hasBackup())
+                    listOf("device", "android", "configuration", "editableSettings")
+                }
+                "read_game_log" -> listOf("logModifiedAtMs", "log")
+                else -> listOf("lastSessionAverageFps", "lastSessionSeconds", "measurementNote", "performance")
+            }
+            keys.forEach { result.put(it, data.opt(it)) }
+            DiagnosticRedactor.text(result.toString())
+        }
+    }
+    override suspend fun prepare(proposal: ConfigProposal): List<String> = withContext(Dispatchers.IO) {
+        check(!hasBackup()) { "A previous change still has an undo backup. The user must restore it or keep it before another change." }
+        val hash = requireNotNull(inspectedHash) { "Read configuration first" }
+        transaction().preview(hash, proposal).also { preparedHash = hash; preparedChanges = it }
+    }
 
     fun readDiagnostics(): Snapshot {
         val container = ContainerUtils.getContainer(context, appId)
@@ -30,6 +78,14 @@ class GameAssistantTools(private val context: Context, private val appId: String
         listOf("fpsLimiterEnabled", "fpsLimiterTarget", "lsfgEnabled").forEach {
             if (extras?.has(it) == true) safeConfig.put(it, extras.get(it).toString().take(30))
         }
+        // Use GameNative's loader defaults for omitted legacy fields. Unknown enum values stay unknown.
+        safeConfig.put("controller", JSONObject()
+            .put("inputApi", ControllerInputApi.entries.firstOrNull { it.nativeApi.ordinal == container.inputType }?.name ?: JSONObject.NULL)
+            .put("directInputMapper", DirectInputMapper.entries.firstOrNull { it.storedValue == container.dinputMapperType.toInt() }?.name ?: JSONObject.NULL)
+            .put("sdlControllerAPI", container.isSdlControllerAPI)
+            .put("useSteamInput", container.getExtra("useSteamInput", "false").toBoolean())
+            .put("disableMouseInput", container.isDisableMouseInput)
+            .put("note", "Saved settings for the next launch. AUTO is automatic API selection, not disabled. Connected devices, player-slot assignments, on-screen profiles and in-game controller behavior have not been inspected."))
         val report = DebugReportUtils.reportsDir(context).listFiles()?.filter { it.isDirectory && it.name.startsWith("${appId}_") }
             ?.sortedByDescending { it.lastModified() }?.firstOrNull {
                 runCatching { JSONObject(readSmall(File(it, "header.json"), 2_000_000)).optString("appId") == appId }.getOrDefault(false)
@@ -45,6 +101,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         }.getOrElse { "Log unavailable or exceeds the 8 MiB safety limit. Capture a shorter run." }
         val result = JSONObject().put("game", appId).put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
             .put("android", Build.VERSION.RELEASE).put("configuration", safeConfig)
+            .put("editableSettings", GameSettingCatalog.describe(config))
             .put("logModifiedAtMs", log?.lastModified() ?: JSONObject.NULL).put("log", logText)
         val session = config.optJSONObject("sessionMetadata")
         result.put("lastSessionAverageFps", session?.optString("avg_fps")?.toDoubleOrNull()?.takeIf { it.isFinite() } ?: JSONObject.NULL)
@@ -55,7 +112,8 @@ class GameAssistantTools(private val context: Context, private val appId: String
     }
 
     private val backupFile: File get() = File(context.noBackupFilesDir, "assistant/undo/$appId.json")
-    fun hasBackup(): Boolean = backupFile.isFile
+    override fun hasBackup(): Boolean = backupFile.isFile
+    fun keepChanges() { checkStopped(); transaction().keep() }
     fun applyValidated(proposal: ConfigProposal, snapshotHash: String) {
         checkStopped()
         transaction().apply(snapshotHash, proposal)

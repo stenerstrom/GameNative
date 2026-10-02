@@ -4,6 +4,65 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: en spelagent och en enklare chatt
+
+**1.2.1-ai-dev.5**, Android `versionCode=25`, ersätter formuläret med en chatt som har fast skrivfält längst ned, läsbara svar med fetstil/kod, spelets namn i toppen och konto/modell/uppdateringar under menyn **⋮**. Den gamla diagnostikpanelen, den obligatoriska manuella läsningen och den framträdande verifieringsknappen är borttagna från huvudflödet. Den senaste konversationen återöppnas för samma spel och anslutning.
+
+### Kort arbetsplan och genomförd arkitektur
+
+1. **Ge agenten verktyg, inte bara mer prompttext.** Ett avbrytbart agentflöde växlar mellan Responses-anrop och lokala verktyg, högst åtta anrop per användarmeddelande. Varje verktygsresultat skickas tillbaka med rätt `function_call_output.call_id`. Modellen får sedan analysera resultatet, undersöka vidare och föreslå en åtgärd. Ingen separat dator behövs.
+2. **Återanvänd faktisk spelkonfiguration.** En typad katalog beskriver 20 verifierbara inställningar, deras nuvarande värden, tillåtna val och begränsningar. Modellen kan inte välja godtyckliga nycklar, filer eller kommandon. En saknad förmåga blir ett konkret besked, inte ett påstående om att något redan är åtgärdat.
+3. **Låt granskning och återställning vara en del av chatten.** Ett kort visar gamla och nya värden samt **Tillämpa** och **Avstå**. Efter tillämpning finns **Ångra ändring** och **Behåll**. Behåll har en bekräftelse som förklarar att den gamla återställningspunkten tas bort, så nästa försök kan få en ny backup.
+4. **Spara sammanhang utan att blanda konton.** De senaste åtta utbytena och spelåtkomstvalet lagras med AES-GCM och Android Keystore, separat per spel och utfärdat anslutnings-ID, i `noBackupFilesDir`. Råa loggar, verktygsanrop och väntande godkännanden sparas inte. AI-svar kan innehålla filtrerade utdrag från diagnostik. **Ny chatt** rensar konversationen; backup påverkas inte.
+
+### Verktyg och rättigheter
+
+Spelåtkomst är avstängd tills användaren väljer **Ge spelåtkomst → Tillåt spelverktyg**. Appen förklarar att konfiguration, tillgänglig spellogg, historiska prestandamätningar och upptäckta handkontroller kan skickas till OpenAI. Valet sparas för detta spel/konto. Därefter väljer agenten själv vad som behövs; användaren behöver inte bifoga eller kopiera JSON varje gång. Utan spelåtkomst går vanlig chatt fortfarande att använda.
+
+| Verktyg | Beteende |
+| --- | --- |
+| `read_configuration` | Läser vald container, enhetsmodell, redigerbar katalog och om backup finns. Binder ett konfigurationshash till denna tur. |
+| `read_game_log` | Läser en begränsad och hemlighetsfiltrerad logg för just spelet. Saknad logg är ett resultat, inte ett stopp för chatten. |
+| `read_performance` | Läser matchande sparade mätningar och senaste sessionsmetadata, uttryckligen historiska och inte ett jämförbart före/efter-test. |
+| `inspect_controllers` | Läser Android-upptäckta gamepads/joysticks och GameNatives aktuella spelarplatsstatus. Inga serienummer, Bluetooth-adresser eller enhetsdeskriptorer skickas. Det är ingen knapptryckningstest inne i spelet. |
+| `propose_settings` | Validerar 1–8 relaterade ändringar efter att konfiguration lästs. Förbereder förhandsvisningen med gamla/nya värden. Returnerar `awaiting_user_approval`, aldrig tillämpad. |
+| `request_restore` | Visar återställningsåtgärden om backup finns. Skriver inte själv någon konfiguration. |
+
+De 20 inställningarna är upplösning, FPS-begränsning av/på och mål, XInput/DirectInput/Auto, DirectInput-mappning, SDL-kontroll-API, Steam Input, inaktivering av mus, touchskärmsläge, shooter-läge, vibration, ALSA/PulseAudio, låg ljudlatens, renderer-presentation (fifo/mailbox), Box64-profil, DRI3, porträttläge, extern skärms inmatningsläge, skärmbyte och pauspolicy.
+
+`AUTO` för kontroll-API är automatiskt val, inte avstängda kontroller. Mappern är separat från att aktivera XInput. Att en kontroll är upptäckt av Android eller en API-inställning är aktiv bevisar inte att den fungerar i Dark Souls. Box64-profilen påverkar inte ett spel som använder FEX. Inställningskatalogens hjälptexter förklarar sådana begränsningar.
+
+Skrivning sker bara från appens tillämpningsknapp, kräver stoppad spelcontainer och oförändrat hash och skapar backup först. Återställningen bevarar andra ändringar och avvisar konflikter. Befintliga backup-filer fungerar. En förberedd åtgärd accepteras inte om nästa modellsteg misslyckas eller avbryts, och återställs aldrig automatiskt från chatthistoriken.
+
+### Varför ingen inbäddad Codex-process ännu?
+
+Den fungerande officiella OAuth-anslutningen behålls. [OpenAI:s app-server-dokumentation](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) beskriver en separat `codex app-server`-process med stdio och anslutningens OAuth-token; den etablerar inte ett färdigt Android-paket. Att lägga till den processen skulle inte automatiskt ge GameNative-verktyg eller en bra Android-UI. Implementationen är därför en **native spelagent med egna verktyg över Responses**, och marknadsförs inte som en installerad Codex-runtime.
+
+[Preview-kraven](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) följs: `store:false`, `stream:true`, hela nödvändiga sammanhanget i `input`, namespacade function-verktyg och inget `previous_response_id` via HTTP. Modellsvar och resonemangsobjekt återges till nästa steg inom samma tur; krypterat resonemang begärs via `include: ["reasoning.encrypted_content"]`. [Function calling](https://developers.openai.com/api/docs/guides/function-calling) beskriver kedjan anrop → lokalt verktyg → verktygsresultat → fortsatt modellsteg. Ingen API-nyckel, separat API-debitering eller extern server införs.
+
+### Testa uppdateringen på MagicPad
+
+1. Stäng spelet. Välj **App updates** i ai-dev.4 (i nya vyn **⋮ → Appuppdateringar**) och installera uppdateringen, eller öppna [ai-dev.5-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-25/GameNative-AI-Dev-1.2.1-ai-dev.5.apk) över AI Dev. Avinstallera inte.
+2. Öppna ett spel → AI-assistenten. Välj **Ge spelåtkomst**, läs beskrivningen och aktivera **Tillåt spelverktyg**. Tryck **Klart**. Det valet behöver inte upprepas för samma spel/konto.
+3. Skriv exempelvis ”Min handkontroll fungerar inte. Kontrollera inställningarna och föreslå en ändring om det behövs.” Agentens pågående undersökning syns i chatten. Ingen debug run behövs.
+4. Granska ändringskortet och tryck **Tillämpa**. Kontrollera inställningen i spelets Edit container. Starta en ny spelsession och prova. Om inställningen redan är rätt ska agenten förklara det och undersöka nästa möjliga orsak.
+5. Stäng spelet och öppna chatten igen. Kontrollera att historiken finns kvar och välj **Ångra ändring**, eller **Behåll** om försöket ska bli det nya utgångsläget.
+6. Prova ”Spelet startar inte”, ”Jag får inget ljud” och en FPS-fråga. Saknade loggar/mätningar ska beskrivas ärligt. Prova även ett annat konto/spel, avbruten nätförbindelse och **Stoppa**; ingen ändring ska tillämpas utan knapptryck.
+
+Fysisk spelkörning, Android Keystore-lagring av den nya chatthistoriken och modellens verkliga flerstegsval kräver MagicPad-verifiering. Tidigare fotografier verifierar inloggning, AI-anrop och vanlig chatt, inte denna nya agentversion. Ingen förbättring av kontrollkompatibilitet eller FPS påstås.
+
+### Verifierat för ai-dev.5
+
+**128 utvalda tester passerar, 0 misslyckade, 0 överhoppade.** Det omfattar agentens verktygsloop och matchande anrops-ID:n, fel och avbrott, förslag före godkännande, samtliga 20 inställningars läsning/sparning/återställning genom GameNatives containerläsare, chattens kontoisolering och återöppning, samt befintliga auth-/ström-/uppdaterings-/FPS-tester. Ett Compose/Robolectric-test i surfplatteformat verifierar skrivfält, sändning utan logg, formaterat svar och separat åtkomstpanel; åtkomstreglagets semantiska klick testas utan fysisk touch.
+
+Appens nya samtalslagring använder Android Keystore, men test av historikflödet injicerar en minneslagring. Den riktiga krypterade persistensen och OEM-tangentbord/layout måste kontrolleras på MagicPad. Ingen fysisk enhet har använts för test av denna version och inga verkliga fleranropssvar har hämtats från användarens konto i byggmiljön.
+
+APK:n bygger och paketverktyget verifierar paket `app.gamenative.aidev`, versionskod 25 och samma fastlagda signerare som tidigare APK:er. [Release ai-dev-25](https://github.com/stenerstrom/GameNative/releases/tag/ai-dev-25). Fil: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.5.apk`. SHA-256: `135814d4d29ade98a26f083fa61397b4a3fccb647fada90f72d08479eb4477bd`. Bygglogg: `build/ai-dev/verification/agent-final-build-tests.log`. Test-XML: `build/ai-dev/verification/agent/`.
+
+### Fortsatt utveckling
+
+Att kunna ”fixa allt möjligt” kräver fler granskade förmågor, inte obegränsad åtkomst till appens privata katalog. Nästa steg är val av faktiskt installerade drivrutiner/Wine-versioner med hantering av deras sidofiler, valda spels INI-format med förhandsvisad diff och filbackup, samt jämförbara prestandatester. Bluetooth-parning, skrivning till globala spelarplatser och automatiska ingrepp i PC-spelets UI finns inte i denna version. Varje ny förmåga ska ha verklig läsning, validering, tillämpning, återställning och testfall innan den erbjuds till modellen.
+
 ## Uppdatering 2026-10-02: installera över befintlig app
 
 **1.2.1-ai-dev.4**, Android `versionCode=24`, är en uppdatering av samma paket `app.gamenative.aidev` med samma signeringscertifikat som ai-dev.1–3. De tidigare APK:erna hade alla versionskod 23. Högre versionskod används nu för varje publicerad version; tidigare lika versionskoder är inte i sig bevis på varför en viss installation misslyckades. Androids regler kräver samma paket, kompatibelt signeringscertifikat och samma eller högre versionskod: [Androids dokumentation om uppdateringar](https://developer.android.com/google/play/app-updates).
@@ -31,7 +90,7 @@ gh release create ai-dev-24 \
 
 Lokalt verifierat: **106 utvalda tester passerar**, inklusive 8 nya tester av manifest, nedladdning, avbrott, checksumma, versions-/paket-/certifikatkontroller. Testet av Android-manifestet kontrollerar också att uppdateringsaktiviteten inte är exporterad. APK:n bygger och dess signerare matchar tidigare AI Dev-APK:er. Inga uppdateringar har installerats på en fysisk enhet från byggmiljön; bevarad inloggning/speldata över en riktig uppdatering, Androids installationsdialog och OEM-beteende behöver verifieras på MagicPad. Loggar och test-XML finns under `build/ai-dev/verification/update*`.
 
-Aktuell uppdatering: [GitHub-release ai-dev-24](https://github.com/stenerstrom/GameNative/releases/tag/ai-dev-24). APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.4.apk`. SHA-256: `f9fb595a9cfc387575e3e1c6490b67a5723b82a835fd9a2aa77baf2390c198f3`.
+Denna tidigare uppdatering: [GitHub-release ai-dev-24](https://github.com/stenerstrom/GameNative/releases/tag/ai-dev-24). APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.4.apk`. SHA-256: `f9fb595a9cfc387575e3e1c6490b67a5723b82a835fd9a2aa77baf2390c198f3`.
 
 ## Uppdatering 2026-10-02: vanlig chatt utan debug run
 
@@ -130,10 +189,11 @@ Källor:
 | Session metadata | Senaste genomsnittliga FPS och sessionslängd, uttryckligen märkta som historiska värden. |
 | `PerformanceMetricsCollector`/`JsonlSessionLog` | Kartlagda men inte använda som spelbevis: dessa sessionsfiler saknar säker app-ID-bindning i nuvarande format. |
 | `fpsLimiterEnabled`/`fpsLimiterTarget` i `extraData` | Samma FPS-gräns som befintlig snabbmeny/renderer använder. |
+| `inputType`/`dinputMapperType` | Samma sparade kontroll-API och mappning som `ControllerTabContent`, `ContainerUtils.toContainerData` och nästa spelstarts WinHandler/SDL-konfiguration använder. |
 | `ModDiagnosticSanitizer` | Grundfilter för sökvägar, URL-frågor och hemligheter, kompletterat med OAuth-token, lösenord, cookies, JWT, e-post och privata nycklar. |
 | Befintlig AI debug run | Samlar loggar + PerfSampler-data och erbjuder rapport till GameNatives Discord-relay. Den är inte en lokal ChatGPT-provider. Rapporten kan behållas lokalt och läsas av assistenten. |
 
-Konfigurationen som skickas är en allowlist: upplösning, grafik-/översättningskomponenter och relevanta FPS-inställningar. Hela `envVars`, startargument, enhetsserienummer, kontodatabaser och logcat skickas inte. Storleksgränser gäller för rålogg, komprimerad logg, rapport och modellström. Komplett begränsad logg filtreras före avkortning. Användaren ser och kan redigera diagnostiken före sändning. Filtrering kan inte identifiera varje tänkbar hemlighet.
+Konfigurationen som skickas är en allowlist: upplösning, grafik-/översättningskomponenter, FPS- och kontrollinställningar samt den redigerbara katalogen ovan. Hela `envVars`, startargument, enhetsserienummer, kontodatabaser och logcat skickas inte. Storleksgränser gäller för rålogg, komprimerad logg, rapport och modellström. Komplett begränsad logg filtreras före avkortning. Användaren ser och kan redigera diagnostiken före sändning. Filtrering kan inte identifiera varje tänkbar hemlighet.
 
 `GameAssistantTools` binder alla läsningar och skrivningar till app-ID:t från Android-skärmen. Ingen modell får välja filvägar. Förslag valideras oberoende av modellen. Tillämpning kräver användarens knapptryck, stoppad spel/container-session och oförändrad konfigurationshash. Backup skrivs atomiskt före konfigurationen; ett misslyckat backup-skrivförsök stoppar ändringen. Bara ett utestående experiment per spel tillåts.
 
@@ -145,7 +205,7 @@ Flaggan `-PaiDev=true` aktiverar funktionen endast i debug-bygget:
 
 - Appnamn: **GameNative AI Dev**.
 - Paket-ID: **`app.gamenative.aidev`**.
-- Version: upstream-version med suffix och egen stigande versionskod från `ai-dev.properties` (nu `-ai-dev.4`, kod 24).
+- Version: upstream-version med suffix och egen stigande versionskod från `ai-dev.properties` (nu `-ai-dev.5`, kod 25).
 - Kodnamespace förblir `app.gamenative`, så upstream/JNI-namn och klassreferenser behålls.
 - `FileProvider` och AndroidX Startup får unika authorities från applicationId.
 - Launcher-aliasarnas klassnamn fortsätter vara `app.gamenative.MainActivityAlias…`, men deras komponentpaket är utvecklingsappens; namn och label kontrolleras i sammanfogat manifest.
@@ -195,16 +255,11 @@ export GRADLE_USER_HOME=/tmp/gamenative-toolchain/gradle
 
 ## Installera och testa på Honor MagicPad
 
-1. För över `GameNative-AI-Dev.apk` till surfplattan och öppna den i filhanteraren. Tillåt installation från den valda appen. Alternativt med USB-felsökning: `adb install -r build/ai-dev/GameNative-AI-Dev.apk`.
-2. Kontrollera att både originalet och **GameNative AI Dev** finns kvar. Starta AI Dev och slutför GameNatives vanliga hämtning/installation av körmiljön.
-3. Logga in i önskad spelbutik eller lägg till ett eget spel. Starta spelet en gång eller skapa dess container via **Edit container**. Ingen del av prototypen antar vilka grafikdrivrutiner/SoC-egenskaper MagicPad har.
-4. Valfritt för logganalys: välj **AI debug run**, reproducera ett kort avsnitt och avsluta spelet. Stäng rapportdialogen utan att skicka/radera rapporten. Alternativt **Play with diagnostics** för wrapper-logg. Detta behövs inte för vanlig chatt eller konfigurationsanalys.
-5. Öppna spelets meny → **AI assistant · ChatGPT**. För vanlig chatt går du direkt till **Message**. För konfigurationsanalys väljer du **Attach settings and log (optional)** och granskar innehållet. Avsaknad av logg/prestandarapport visas uttryckligen.
-6. För ett lokalt ändringsprov: **Review optional diagnostics → Read configuration and game log → Local 30 FPS test proposal (no AI)** → granska → **Back up and apply these changes**. Kontrollera nästa spelstarts FPS-gräns i snabbmenyn. Stäng appen, öppna den igen och välj **Restore previous settings**. Bekräfta att tidigare FPS-inställning återkommit. Prova också att ändra ett annat fält och att det bevaras vid restore.
-7. Välj **Continue with ChatGPT** om du inte redan har en ansluten profil. Granska OpenAI:s officiella samtycke på surfplattan. Om fliken ligger kvar, återvänd med Androids Tillbaka och kontrollera appens status. En kvarliggande flik bevisar inte att inloggningen är klar. När appen visar anslutningen väljer du modell och **Verify AI access**; befintlig anslutning behöver inte registreras på nytt för varje test. Spara bara felkod/request-ID vid fel, aldrig tokens eller hela OAuth-returadressen.
-8. Ett avslutat textsvar från knappen är beviset på att just den anslutningen/modellen fungerade. Ett konto i listan eller en modellista är inte samma bevis.
-9. Skriv till exempel ”Det här spelet hackar, hjälp mig att få stabila 30 FPS.” Tryck **Send message** för att börja prata om problemet. För ett tillämpbart förslag bifogar du inställningarna, redigerar bort känslig diagnostik och trycker **Send with reviewed settings**. Granska förklaring, berörda inställningar och osäkerhet innan du tillämpar.
-10. Prova avböjt samtycke, offline-läge, avbruten inloggning, rotation och appomstart. Prova Sign out och återinloggning i samma anslutning samt en separat workspace-anslutning. Vid nekad abonnemangsåtkomst fungerar det lokala ändrings-/återställningsflödet fortfarande.
+Följ de aktuella teststegen för ai-dev.5 överst i dokumentet. Uppdatera från ai-dev.4 med **App updates** eller installera `build/ai-dev/GameNative-AI-Dev.apk` över samma app. Med USB-felsökning kan `adb install -r build/ai-dev/GameNative-AI-Dev.apk` användas. Avinstallera inte för att uppdatera.
+
+Vid helt ny installation: starta AI Dev och slutför GameNatives hämtning av körmiljön. Logga in i spelbutiken eller lägg till ett eget spel. Starta spelet en gång eller skapa dess container med **Edit container** innan agenten undersöker inställningarna. **AI debug run** eller **Play with diagnostics** är valfria sätt att samla en spellogg; behövs inte för vanlig chatt eller konfigurationsanalys. Skicka inte rapporten till Discord för att använda assistenten.
+
+Om ingen anslutning finns, välj **Continue with ChatGPT**. Samtycke sker på OpenAI:s sida. Återvänd med Androids Tillbaka om fliken ligger kvar och kontrollera appens status. Kontot eller modellistan ensamma bevisar inte AI-behörighet: ett faktiskt avslutat textsvar gör det. Spara bara felkod/request-ID vid problem, aldrig tokens eller hela OAuth-returadressen.
 
 Vid återställningskonflikt: backup behålls; sätt det berörda fältet manuellt till experimentets värde eller originalvärdet och försök igen. Återställ inte en godtycklig gammal helkonfiguration över nyare inställningar. Om originalet redan var 30 FPS är ett lokalt 30 FPS-prov en no-op och avvisas utan backup.
 
@@ -248,4 +303,4 @@ Lokala bygg-/testloggar och XML-resultat sparas i `build/ai-dev/verification/` (
 
 ## Nästa milstolpe
 
-Efter det lyckade AI-verifieringsanropet återstår fysisk verifiering av spelanalys med logg, ett validerat förslag, tillämpning och återställning samt återanvändning av anslutningen efter appomstart/tokenförnyelse. Inloggningsflikens retur och status behöver förbättras. Därefter bättre spel- och konfigurationsbindning av mätningar, jämförbara före/efter-rapporter, fler validerade inställningar och eventuellt upprepade optimeringstester. Generaliserad agentloop, godtyckliga filändringar och automatiska testkörningar ingår inte här.
+Verifiera ai-dev.5:s faktiska flerstegssvar, uppdateringsinstallation, krypterade historik efter appomstart och kontroll-/ljud-/prestandaändringar på MagicPad. Därefter utökas katalogen med installerade drivrutiner/Wine-versioner och deras verkliga sidofiler, spelbundna INI-adaptrar och jämförbara före/efter-mätningar. Agentens läs- och förslagsloop finns nu; godtycklig shell-/filåtkomst och automatiska upprepade speltester gör det inte. Inloggningsflikens automatiska återgång är fortfarande inte verifierad.

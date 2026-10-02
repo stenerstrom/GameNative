@@ -31,6 +31,7 @@ interface GameAiProvider {
     suspend fun verify(model: String): String
     suspend fun signOut(): Boolean
     suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>): AssistantProtocol.Reply
+    suspend fun agentTurn(request: JSONObject): AssistantProtocol.Reply
 }
 
 /** Official public OAuth + Responses route. There is deliberately no API-key billing fallback. */
@@ -119,6 +120,8 @@ class ChatGptProvider(context: Context) : GameAiProvider {
             check(diagnostics != null || it.proposal == null) { "Unexpected configuration proposal without attached settings" }
         }
     }
+
+    override suspend fun agentTurn(request: JSONObject): AssistantProtocol.Reply = io { stream(request) }
 
     /** Clears local secrets even if offline, but retains the registration and host ID. */
     override suspend fun signOut(): Boolean = io {

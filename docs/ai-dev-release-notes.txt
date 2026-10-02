@@ -1,10 +1,12 @@
-GameNative AI Dev – uppdateringar utan avinstallation
+GameNative AI Dev 1.2.1-ai-dev.5 – spelagent och enklare chatt
 
-• Vanlig chatt och följdfrågor utan debug run. Inställningar och logg är valfria bilagor.
-• Ny uppdateringsvy: App updates i AI-vyn eller GameNative AI Dev updates under Inställningar → Info.
-• Hämtning med kontroll av APK:ns paket, version, kontrollsumma och signeringscertifikat.
-• Högre Android-versionsnummer och samma signeringsnyckel som tidigare AI Dev-versioner.
+• Ny chatt med fast skrivfält, spelets namn och konto/modell/uppdateringar under ⋮. Diagnostikformuläret behövs inte längre.
+• Ge spelåtkomst en gång per spel/konto. Agenten kan därefter själv läsa konfiguration, spellogg, prestandadata och upptäckta handkontroller. Du ser vad den undersöker.
+• 20 inställningar: kontroller/touch, FPS/upplösning, ljud, Box64-profil, presentation, DRI3, skärmläge och pauspolicy.
+• Ändringskort visar gamla och nya värden. Tillämpa skapar backup först. Ångra ändring återställer. Behåll avslutar försöket inför nästa ändring.
+• Krypterad chatthistorik per spel och konto. Ny chatt rensar historiken. Ingen debug run behövs för att prata eller undersöka konfigurationen.
+• Native Android-agent med officiell ChatGPT-abonnemangsanslutning; ingen separat dator eller API-nyckel. Detta är inte en installerad Codex app-server.
 
-Installera denna APK ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata; då behålls spel, inställningar och inloggningar. Stäng spel innan uppdateringen. Android ber dig godkänna installationen.
+Uppdatera via App updates i ai-dev.4 eller installera APK:n ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata. Samma paket/signeringsnyckel, högre versionskod 25. Stäng spelet före installation.
 
-Detta är en experimentell utvecklingsversion. AI-anrop med GPT-6 Astra har verifierats av användaren på MagicPad i ai-dev.2. Uppdateringsinstallationen och den nya chattvyn behöver fortfarande verifieras på fysisk enhet.
+Drivrutinsinstallation, godtycklig filredigering, Bluetooth-parning och PC-spelets egna inställningsmenyer ingår inte. Verktygsflöde, UI, sparade inställningar och återställning testas lokalt; nya modellsteg och faktisk spel-/kontrollfunktion kräver test på MagicPad. Ingen FPS-förbättring utlovas.

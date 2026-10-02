@@ -1244,7 +1244,7 @@ abstract class BaseAppScreen {
             if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
                 menuOptions.add(AppMenuOption(AppOptionMenuType.GameAssistant, onClick = {
                     context.startActivity(Intent(context, app.gamenative.assistant.GameAssistantActivity::class.java)
-                        .putExtra("app_id", libraryItem.appId))
+                        .putExtra("app_id", libraryItem.appId).putExtra("game_title", libraryItem.name))
                 }))
             }
             getShareDiagnosticsOption(context, libraryItem)?.let { menuOptions.add(it) }

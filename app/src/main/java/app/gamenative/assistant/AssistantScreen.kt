@@ -1,0 +1,217 @@
+package app.gamenative.assistant
+
+import android.content.Intent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import app.gamenative.BuildConfig
+import app.gamenative.updates.AiDevUpdateActivity
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit) {
+    val state by model.state.collectAsState()
+    val context = LocalContext.current
+    val selected = state.accounts.accounts.firstOrNull { it.id == state.accounts.selected }
+    var menu by remember { mutableStateOf(false) }
+    var sheet by rememberSaveable { mutableStateOf<String?>(null) }
+    var keepConfirmation by remember { mutableStateOf(false) }
+    var newChatConfirmation by remember { mutableStateOf(false) }
+    val scroll = rememberLazyListState()
+    LaunchedEffect(state.history.size, state.busy, state.proposal, state.restoreRequested) {
+        withFrameNanos { }
+        scroll.animateScrollToItem((scroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+    }
+    Surface(Modifier.fillMaxSize()) {
+        Column(Modifier.safeDrawingPadding().imePadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Tillbaka") }
+                Column(Modifier.weight(1f)) {
+                    Text(state.gameTitle, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text("Spelassistent · ${state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "ChatGPT"}",
+                        style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Alternativ") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Konto och modell") }, onClick = { menu = false; sheet = "account" })
+                        DropdownMenuItem(text = { Text("Spelåtkomst och verktyg") }, onClick = { menu = false; sheet = "access" })
+                        DropdownMenuItem(text = { Text("Ny chatt") }, enabled = !state.busy, onClick = { menu = false; newChatConfirmation = true })
+                        DropdownMenuItem(text = { Text("Appuppdateringar") }, enabled = !state.busy, onClick = {
+                            menu = false; context.startActivity(Intent(context, AiDevUpdateActivity::class.java))
+                        })
+                    }
+                }
+            }
+            HorizontalDivider()
+            LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (state.history.isEmpty()) item {
+                    Column(Modifier.widthIn(max = 800.dp).fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Vad vill du få ordning på?", style = MaterialTheme.typography.headlineSmall)
+                        Text("Beskriv problemet. Jag kan undersöka spelet och förbereda ändringar som du godkänner här.")
+                        listOf("Spelet hackar – hjälp mig nå stabila 30 FPS", "Min handkontroll fungerar inte", "Spelet startar inte").forEach { prompt ->
+                            OutlinedButton(onClick = { model.prompt(prompt) }, enabled = !state.busy) { Text(prompt) }
+                        }
+                    }
+                }
+                state.history.forEach { turn ->
+                    item {
+                        Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.widthIn(max = 620.dp)) {
+                                SelectionContainer { Text(turn.user, Modifier.padding(14.dp)) }
+                            }
+                        }
+                    }
+                    item { Column(Modifier.widthIn(max = 800.dp).fillMaxWidth()) { AssistantText(turn.displayText) } }
+                }
+                if (state.busy) item {
+                    Column(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.prompt.isNotBlank()) Text(state.prompt, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        state.activities.forEach { Text("• $it", style = MaterialTheme.typography.bodySmall) }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(state.status, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = model::cancel) { Text("Stoppa") }
+                        }
+                    }
+                }
+                if (!state.busy && state.status.isNotBlank()) item {
+                    Text(state.status, Modifier.widthIn(max = 800.dp).fillMaxWidth(), style = MaterialTheme.typography.bodySmall)
+                }
+                state.proposal?.let { proposal -> item {
+                    Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Föreslagna ändringar", style = MaterialTheme.typography.titleMedium)
+                            (state.proposalChanges.ifEmpty { proposal.changes() }).forEach { Text(it) }
+                            AssistantText(proposal.reason)
+                            Text("Stäng spelet först. En säkerhetskopia skapas innan inställningarna sparas. Testa vid nästa spelstart.", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = model::apply, enabled = !state.busy && !state.backup) { Text("Tillämpa") }
+                                TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
+                            }
+                        }
+                    }
+                } }
+                if (state.backup) item {
+                    Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (state.restoreRequested) "Återställ tidigare inställningar?" else "Senaste ändringen kan ångras", style = MaterialTheme.typography.titleMedium)
+                            Text("Testa i spelet. Ångra om det blir sämre, eller behåll ändringen innan nästa försök.", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = model::restore, enabled = !state.busy) { Text("Ångra ändring") }
+                                TextButton(onClick = { keepConfirmation = true }, enabled = !state.busy) { Text("Behåll") }
+                            }
+                        }
+                    }
+                }
+            }
+            Surface(tonalElevation = 3.dp) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (selected?.planEnabled != true) {
+                        Button(onClick = { model.connect(false, openBrowser) }, enabled = !state.busy) { Text("Continue with ChatGPT") }
+                        Text("Använder ditt ChatGPT-abonnemang.", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { sheet = "access" }, enabled = !state.busy) {
+                                Text(if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
+                            }
+                            if (!state.includeDiagnostics) Text("eller chatta utan verktyg", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = state.prompt, onValueChange = model::prompt, enabled = !state.busy,
+                            modifier = Modifier.weight(1f), placeholder = { Text("Skriv ett meddelande…") }, maxLines = 4,
+                            shape = MaterialTheme.shapes.large)
+                        FilledIconButton(onClick = model::send, enabled = state.sendBlockReason == null, modifier = Modifier.padding(bottom = 4.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.Send, "Skicka")
+                        }
+                    }
+                    if (selected?.planEnabled == true && state.selectedModel.isBlank() && !state.busy) {
+                        TextButton(onClick = { sheet = "account" }) { Text("Välj eller hämta modell") }
+                    }
+                }
+            }
+        }
+    }
+    if (sheet != null) ModalBottomSheet(onDismissRequest = { sheet = null }) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 600.dp).verticalScroll(rememberScrollState()).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (sheet == "account") {
+                Text("Konto och modell", style = MaterialTheme.typography.titleLarge)
+                Text("GameNative AI Dev ${BuildConfig.VERSION_NAME} · ChatGPT-abonnemang", style = MaterialTheme.typography.bodySmall)
+                state.accounts.accounts.forEach { account ->
+                    TextButton(onClick = { model.select(account.id) }, enabled = !state.busy) { Text("${if (account.id == selected?.id) "✓ " else ""}${account.label}") }
+                }
+                if (selected?.planEnabled != true) Button(onClick = { model.connect(false, openBrowser) }, enabled = !state.busy) { Text("Continue with ChatGPT") }
+                TextButton(onClick = { model.connect(true, openBrowser) }, enabled = !state.busy) { Text("Lägg till konto") }
+                state.models.forEach { available ->
+                    TextButton(onClick = { model.model(available.slug) }, enabled = !state.busy) { Text("${if (state.selectedModel == available.slug) "✓ " else ""}${available.name}") }
+                }
+                Text("Modellerna hämtas från OpenAI för denna anslutning.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = model::refreshModels, enabled = !state.busy && selected?.planEnabled == true) { Text("Uppdatera modellistan") }
+                TextButton(onClick = { openBrowser(ChatGptProvider.USAGE_URL) }) { Text("Hantera användning och appåtkomst") }
+                if (selected?.connected == true) TextButton(onClick = model::disconnect, enabled = !state.busy) { Text("Logga ut") }
+                Text("Om inloggningsfliken ligger kvar efter godkännande: använd Androids Tillbaka och kontrollera anslutningen här.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text("Spelåtkomst", style = MaterialTheme.typography.titleLarge)
+                Text("Låt assistenten själv läsa detta spels inställningar, tillgängliga logg och prestandadata samt upptäckta handkontroller när den behöver dem. Informationen filtreras och skickas till OpenAI med din fråga.")
+                Text("Alla ändringar visas för godkännande. Ingen debug run behövs för att börja. Hemlighetsfiltreringen kan inte hitta varje känslig detalj.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tillåt spelverktyg", Modifier.weight(1f))
+                    Switch(checked = state.includeDiagnostics, onCheckedChange = model::attachDiagnostics, enabled = !state.busy)
+                }
+                Text("Kan ändra ${GameSettingCatalog.settings.size} spelinställningar", style = MaterialTheme.typography.titleMedium)
+                Text("Kontroller och touch, FPS-gräns och upplösning, ljud, Box64-profil, skärmläge och pausinställningar.")
+                Text("Drivrutinsinstallation, godtyckliga filer, Bluetooth-parning och inställningar inne i PC-spelet är ännu inte kopplade till verktyg.", style = MaterialTheme.typography.bodySmall)
+                Text("De senaste åtta utbytena sparas krypterat per spel och konto på denna enhet. Ny chatt rensar dem. Råloggar och väntande ändringar sparas inte i chatthistoriken, men svar kan innehålla uppgifter från tidigare diagnostik.", style = MaterialTheme.typography.bodySmall)
+            }
+            Button(onClick = { sheet = null }, modifier = Modifier.fillMaxWidth()) { Text("Klart") }
+        }
+    }
+    if (keepConfirmation) AlertDialog(onDismissRequest = { keepConfirmation = false }, title = { Text("Behåll ändringarna?") },
+        text = { Text("Den senaste säkerhetskopian tas bort. Därefter kan assistenten förbereda ett nytt försök med en ny säkerhetskopia.") },
+        confirmButton = { TextButton(onClick = { keepConfirmation = false; model.keepChanges() }) { Text("Behåll") } },
+        dismissButton = { TextButton(onClick = { keepConfirmation = false }) { Text("Avbryt") } })
+    if (newChatConfirmation) AlertDialog(onDismissRequest = { newChatConfirmation = false }, title = { Text("Starta ny chatt?") },
+        text = { Text("Den sparade konversationen för detta spel och konto rensas. Spelinställningar och återställningspunkten behålls.") },
+        confirmButton = { TextButton(onClick = { newChatConfirmation = false; model.clearChat() }) { Text("Ny chatt") } },
+        dismissButton = { TextButton(onClick = { newChatConfirmation = false }) { Text("Avbryt") } })
+}
+
+@Composable
+private fun AssistantText(text: String) {
+    // Safe inline formatting: no HTML/WebView and no automatic execution or opening model links.
+    val formatted = remember(text) { buildAnnotatedString {
+        val pattern = Regex("\\*\\*(.+?)\\*\\*|`([^`]+)`")
+        var cursor = 0
+        pattern.findAll(text).forEach { match ->
+            append(text.substring(cursor, match.range.first))
+            if (match.groups[1] != null) withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groupValues[1]) }
+            else withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(match.groupValues[2]) }
+            cursor = match.range.last + 1
+        }
+        append(text.substring(cursor))
+    } }
+    SelectionContainer { Text(formatted, style = MaterialTheme.typography.bodyLarge) }
+}

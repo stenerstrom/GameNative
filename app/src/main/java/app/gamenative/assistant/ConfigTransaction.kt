@@ -10,16 +10,45 @@ import org.json.JSONObject
 class ConfigTransaction(private val config: File, private val backup: File) {
     fun hasBackup(): Boolean = backup.exists()
 
+    fun preview(expectedHash: String, proposal: ConfigProposal): List<String> = synchronized(lock) {
+        val bytes = config.readBytes()
+        check(AssistantProtocol.sha256(bytes) == expectedHash) { "Configuration changed. Read it again." }
+        val current = JSONObject(bytes.toString(Charsets.UTF_8))
+        val changes = proposal.patch().filter { (key, next) -> value(current, key)?.toString() != next.toString() }
+        check(changes.isNotEmpty()) { "These settings are already active" }
+        changes.map { (path, next) ->
+            val setting = GameSettingCatalog.settings.first { it.path == path }
+            val target = setting.choices.firstOrNull { setting.decode(it).toString() == next.toString() } ?: next.toString()
+            "${setting.label}: ${setting.display(setting.current(current))} → ${setting.display(target)}"
+        }
+    }
+
+    /** Explicitly accepted by the user, never called by the model. */
+    fun keep() = synchronized(lock) {
+        val record = JSONObject(backup.readText())
+        check(record.getInt("schema") == 1)
+        val current = JSONObject(config.readText())
+        val after = record.getJSONObject("after")
+        val keys = record.getJSONArray("keys")
+        for (i in 0 until keys.length()) {
+            val key = keys.getString(i)
+            require(key in allowedKeys)
+            check(value(current, key) == value(after, key)) { "Configuration changed elsewhere. The undo backup is retained." }
+        }
+        check(backup.delete()) { "Could not clear the undo record" }
+    }
+
     fun apply(expectedHash: String, proposal: ConfigProposal) = synchronized(lock) {
         check(!backup.exists()) { "Restore the previous experiment first" }
         val original = config.readBytes()
         check(AssistantProtocol.sha256(original) == expectedHash) { "Configuration changed. Read diagnostics and analyze again." }
         val before = JSONObject(original.toString(Charsets.UTF_8))
         val after = JSONObject(before.toString())
-        proposal.patch().forEach { (key, value) -> set(after, key, value) }
-        check(proposal.patch().keys.any { value(before, it) != value(after, it) }) { "These settings are already active" }
+        val changes = proposal.patch().filter { (key, next) -> value(before, key)?.toString() != next.toString() }
+        check(changes.isNotEmpty()) { "These settings are already active" }
+        changes.forEach { (key, value) -> set(after, key, value) }
         val record = JSONObject().put("schema", 1).put("before", before).put("after", after)
-            .put("keys", org.json.JSONArray(proposal.patch().keys.toList()))
+            .put("keys", org.json.JSONArray(changes.keys.toList()))
         atomicWrite(backup, record.toString().toByteArray())
         atomicWrite(config, after.toString().toByteArray())
     }
@@ -52,7 +81,7 @@ class ConfigTransaction(private val config: File, private val backup: File) {
 
     companion object {
         private val lock = Any()
-        private val allowedKeys = setOf("screenSize", "extraData.fpsLimiterEnabled", "extraData.fpsLimiterTarget")
+        private val allowedKeys = GameSettingCatalog.paths
         private fun value(json: JSONObject, key: String): Any? = if (key.startsWith("extraData.")) {
             json.optJSONObject("extraData")?.opt(key.substringAfter('.'))
         } else json.opt(key)

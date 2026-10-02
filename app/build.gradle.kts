@@ -1,5 +1,7 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.security.KeyStore
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -14,6 +16,7 @@ plugins {
 }
 
 val aiDev = providers.gradleProperty("aiDev").orNull == "true"
+val aiDevVersion = Properties().apply { rootProject.file("ai-dev.properties").inputStream().use { load(it) } }
 
 val keystorePropertiesFile = rootProject.file("app/keystores/keystore.properties")
 val keystoreProperties: Properties? = if (keystorePropertiesFile.exists()) {
@@ -47,6 +50,20 @@ android {
     ndkVersion = "27.3.13750724"
 
     signingConfigs {
+        if (aiDev) {
+            create("aiDev") {
+                // Retain the prototype's existing certificate so installed apps can be updated.
+                storeFile = file("keystores/ai-dev.keystore")
+                check(storeFile!!.isFile) { "Restore app/keystores/ai-dev.keystore from your private backup. Do not generate a replacement key." }
+                val existingKey = KeyStore.getInstance(storeFile!!, "android".toCharArray())
+                val certificate = requireNotNull(existingKey.getCertificate("androiddebugkey")) { "Missing AI Dev signing certificate" }
+                val fingerprint = MessageDigest.getInstance("SHA-256").digest(certificate.encoded).joinToString("") { "%02x".format(it) }
+                check(fingerprint == aiDevVersion.getProperty("signerSha256")) { "AI Dev signing key changed. Restore the original key; do not uninstall the app." }
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         create("pluvia") {
             if (keystoreProperties != null) {
                 storeFile = file(keystoreProperties["storeFile"].toString())
@@ -174,7 +191,7 @@ android {
             buildConfigField("boolean", "AI_ASSISTANT_ENABLED", aiDev.toString())
             if (aiDev) {
                 applicationIdSuffix = ".aidev"
-                versionNameSuffix = "-ai-dev.3"
+                versionNameSuffix = "-${aiDevVersion.getProperty("versionSuffix")}"
                 manifestPlaceholders["appLabel"] = "GameNative AI Dev"
                 manifestPlaceholders["launchScheme"] = "gamenative-aidev"
                 manifestPlaceholders["homeScheme"] = "gamenative-aidev-home"
@@ -185,7 +202,7 @@ android {
             isDebuggable = true
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (aiDev) "aiDev" else "debug")
         }
         release {
             isMinifyEnabled = true
@@ -430,6 +447,12 @@ android {
     //         exclude(group = "junit", module = "junit")
     //     }
     // }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        if (aiDev) variant.outputs.forEach { it.versionCode.set(aiDevVersion.getProperty("versionCode").toInt()) }
+    }
 }
 
 dependencies {

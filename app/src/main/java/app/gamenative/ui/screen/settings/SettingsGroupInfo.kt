@@ -1,5 +1,6 @@
 package app.gamenative.ui.screen.settings
 
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material3.Icon
@@ -10,8 +11,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import app.gamenative.Constants
+import app.gamenative.BuildConfig
+import app.gamenative.updates.AiDevUpdateActivity
 import app.gamenative.PrefManager
 import app.gamenative.R
 import app.gamenative.ui.component.dialog.LibrariesDialog
@@ -25,12 +29,20 @@ import com.alorma.compose.settings.ui.SettingsSwitch
 fun SettingsGroupInfo() {
     SettingsGroup() {
         val uriHandler = LocalUriHandler.current
+        val context = LocalContext.current
         var askForTip by rememberSaveable { mutableStateOf(!PrefManager.tipped) }
         var showLibrariesDialog by rememberSaveable { mutableStateOf(false) }
 
         LibrariesDialog(
             visible = showLibrariesDialog,
             onDismissRequest = { showLibrariesDialog = false },
+        )
+
+        if (BuildConfig.AI_ASSISTANT_ENABLED) SettingsMenuLink(
+            colors = settingsTileColors(),
+            title = { Text("GameNative AI Dev updates") },
+            subtitle = { Text("Check for updates and keep your app data") },
+            onClick = { context.startActivity(Intent(context, AiDevUpdateActivity::class.java)) },
         )
 
         SettingsMenuLink(

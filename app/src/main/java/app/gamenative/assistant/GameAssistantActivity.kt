@@ -37,12 +37,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.gamenative.BuildConfig
 import app.gamenative.ui.theme.PluviaTheme
+import app.gamenative.updates.AiDevUpdateActivity
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.CancellationException
@@ -255,6 +257,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
 @Composable
 private fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit) {
     val state by model.state.collectAsState()
+    val context = LocalContext.current
     val selected = state.accounts.accounts.firstOrNull { it.id == state.accounts.selected }
     var accountExpanded by rememberSaveable(state.game) { mutableStateOf(false) }
     var diagnosticsExpanded by rememberSaveable(state.game) { mutableStateOf(false) }
@@ -265,6 +268,7 @@ private fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, 
             Text("${if (state.verified) "AI response verified" else "AI access not verified"} · ${if (selected?.planEnabled == true) "Using ChatGPT plan" else "ChatGPT plan permission not enabled"}")
             Text(state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "Choose a model to chat")
             TextButton(onClick = { accountExpanded = !accountExpanded }) { Text(if (accountExpanded) "Hide account and model" else "Account and model") }
+            TextButton(onClick = { context.startActivity(Intent(context, AiDevUpdateActivity::class.java)) }, enabled = !state.busy) { Text("App updates") }
             if (accountExpanded || selected?.planEnabled != true) {
                 state.accounts.accounts.forEach { account ->
                     OutlinedButton(onClick = { model.select(account.id) }, enabled = !state.busy) {

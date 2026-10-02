@@ -1,0 +1,10 @@
+GameNative AI Dev – uppdateringar utan avinstallation
+
+• Vanlig chatt och följdfrågor utan debug run. Inställningar och logg är valfria bilagor.
+• Ny uppdateringsvy: App updates i AI-vyn eller GameNative AI Dev updates under Inställningar → Info.
+• Hämtning med kontroll av APK:ns paket, version, kontrollsumma och signeringscertifikat.
+• Högre Android-versionsnummer och samma signeringsnyckel som tidigare AI Dev-versioner.
+
+Installera denna APK ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata; då behålls spel, inställningar och inloggningar. Stäng spel innan uppdateringen. Android ber dig godkänna installationen.
+
+Detta är en experimentell utvecklingsversion. AI-anrop med GPT-6 Astra har verifierats av användaren på MagicPad i ai-dev.2. Uppdateringsinstallationen och den nya chattvyn behöver fortfarande verifieras på fysisk enhet.

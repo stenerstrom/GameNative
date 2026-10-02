@@ -4,6 +4,35 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: installera över befintlig app
+
+**1.2.1-ai-dev.4**, Android `versionCode=24`, är en uppdatering av samma paket `app.gamenative.aidev` med samma signeringscertifikat som ai-dev.1–3. De tidigare APK:erna hade alla versionskod 23. Högre versionskod används nu för varje publicerad version; tidigare lika versionskoder är inte i sig bevis på varför en viss installation misslyckades. Androids regler kräver samma paket, kompatibelt signeringscertifikat och samma eller högre versionskod: [Androids dokumentation om uppdateringar](https://developer.android.com/google/play/app-updates).
+
+Installera APK:n ovanpå **GameNative AI Dev**. Avinstallera inte och rensa inte appdata. Uppdateringsflödet rör bara en ny APK i cache och anropar Androids paketinstallerare; det raderar inte spel, inställningar, backup-filer eller inloggningar. Databas-/speldataformat har inte ändrats i denna uppdatering. Om Android ändå nekar installationen, behåll den befintliga appen och spara den exakta feltexten så att paket/signatur/version kan felsökas.
+
+Efter denna uppdatering: välj **App updates** i AI-vyn eller **Settings → Info → GameNative AI Dev updates**. Funktionen läser forkens publicerade uppdateringsmanifest från GitHub Releases. Tryck **Download update**, därefter **Install update**. Android ber om godkännande. Vid behov öppnas Androids inställning för att tillåta installation från GameNative AI Dev; återvänd sedan och tryck Install update igen. Stäng spel innan installationen. Inga bakgrundsuppdateringar eller tysta installationer görs.
+
+Uppdateringskällan är enbart `stenerstrom/GameNative`, via `releases/latest/download/ai-dev-update.json`. APK:ns URL måste peka på rätt version i denna fork. Hämtningen begränsas till angiven storlek (högst 512 MiB), kontrolleras med SHA-256 och granskas för paketnamn, versionskod/-namn och identiska signerare med den installerade appen. Android verifierar signaturen vid installation. Upstreams gamla uppdateringskontroll är fortsatt avstängd för AI Dev. Ingen ChatGPT-token eller annan appinloggning skickas till GitHub.
+
+Det tidigare signeringscertifikatet är fastlagt i `ai-dev.properties`. Den privata nyckeln har kopierats lokalt till `app/keystores/ai-dev.keystore` med filrättighet 600; sökvägen ignoreras av Git. Nyckeln publiceras inte med release eller källkod. Gradle stoppar om filen saknas eller certifikatet skiljer sig, även vid direkt Gradle-bygge. Bevara en separat privat säkerhetskopia för framtida datorbyten; en nygenererad nyckel kan inte ersätta den för redan installerade appar. Den ursprungliga lokala kopian finns också i `~/.android/debug.keystore` på denna byggdator.
+
+För varje framtida uppdatering: öka `versionCode` och `versionSuffix` i `ai-dev.properties`, uppdatera `docs/ai-dev-release-notes.txt`, bygg med `tools/build-ai-dev.sh`, kör relevanta tester och publicera den verifierade APK:n tillsammans med `build/ai-dev/ai-dev-update.json` i en GitHub-release med taggen `ai-dev-<versionCode>`. Markera releasen som latest för forkens kanal; publicera aldrig en lägre kod än tidigare. Byggskriptet kontrollerar certifikat och versionsmetadata före kopiering till distributionsfilerna. Nyckeln ska inte checkas in eller ersättas med en tillfällig CI-nyckel.
+
+Exempel för denna version efter push av koden:
+
+```sh
+gh release create ai-dev-24 \
+  build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.4.apk \
+  build/ai-dev/ai-dev-update.json \
+  --repo stenerstrom/GameNative --target magicpad-ai-prototype \
+  --title 'GameNative AI Dev 1.2.1-ai-dev.4' \
+  --notes-file docs/ai-dev-release-notes.txt --latest
+```
+
+Lokalt verifierat: **106 utvalda tester passerar**, inklusive 8 nya tester av manifest, nedladdning, avbrott, checksumma, versions-/paket-/certifikatkontroller. Testet av Android-manifestet kontrollerar också att uppdateringsaktiviteten inte är exporterad. APK:n bygger och dess signerare matchar tidigare AI Dev-APK:er. Inga uppdateringar har installerats på en fysisk enhet från byggmiljön; bevarad inloggning/speldata över en riktig uppdatering, Androids installationsdialog och OEM-beteende behöver verifieras på MagicPad. Loggar och test-XML finns under `build/ai-dev/verification/update*`.
+
+Aktuell uppdatering: [GitHub-release ai-dev-24](https://github.com/stenerstrom/GameNative/releases/tag/ai-dev-24). APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.4.apk`. SHA-256: `f9fb595a9cfc387575e3e1c6490b67a5723b82a835fd9a2aa77baf2390c198f3`.
+
 ## Uppdatering 2026-10-02: vanlig chatt utan debug run
 
 Version **1.2.1-ai-dev.3** visar chatt först. Skriv i **Message** och tryck **Send message**. Varken debug run, spellogg eller en läst containerkonfiguration behövs. Assistenten kan svara på vanliga frågor och följdfrågor. Den är fortfarande vår native-assistent som använder ChatGPT-abonnemanget, inte en installerad Codex-process.
@@ -116,7 +145,7 @@ Flaggan `-PaiDev=true` aktiverar funktionen endast i debug-bygget:
 
 - Appnamn: **GameNative AI Dev**.
 - Paket-ID: **`app.gamenative.aidev`**.
-- Version: upstream-version med `-ai-dev.3` i den aktuella utvecklingsversionen.
+- Version: upstream-version med suffix och egen stigande versionskod från `ai-dev.properties` (nu `-ai-dev.4`, kod 24).
 - Kodnamespace förblir `app.gamenative`, så upstream/JNI-namn och klassreferenser behålls.
 - `FileProvider` och AndroidX Startup får unika authorities från applicationId.
 - Launcher-aliasarnas klassnamn fortsätter vara `app.gamenative.MainActivityAlias…`, men deras komponentpaket är utvecklingsappens; namn och label kontrolleras i sammanfogat manifest.
@@ -142,7 +171,7 @@ Bygg i Android Studio med JDK 17 eller i terminal:
 ./tools/build-ai-dev.sh
 ```
 
-Skriptet kör `./gradlew :app:assembleModernDebug -PaiDev=true`. APK:n kopieras till `build/ai-dev/GameNative-AI-Dev.apk`. Installera bara denna utvecklings-APK om originalet ska vara kvar. Behåll din debug-keystore för framtida uppdateringar av samma installation.
+Skriptet kör `./gradlew :app:assembleModernDebug -PaiDev=true`. APK:n verifieras och kopieras till `build/ai-dev/GameNative-AI-Dev.apk` samt ett versionsmärkt filnamn. Python 3 behövs för paketeringen. Återställ den ursprungliga privata nyckeln i `app/keystores/ai-dev.keystore` innan byggning på en annan dator. Saknad eller ändrad nyckel stoppar bygget. Installera bara AI Dev-APK:n om originalet ska vara kvar.
 
 Relevanta tester:
 

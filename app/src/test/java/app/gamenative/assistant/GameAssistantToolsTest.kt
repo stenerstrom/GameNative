@@ -76,6 +76,8 @@ class GameAssistantToolsTest {
         assertTrue(launchers.any { it.activityInfo.name == "app.gamenative.MainActivityAliasDefault" })
         val assistant = manager.getActivityInfo(android.content.ComponentName(context, GameAssistantActivity::class.java), 0)
         assertFalse(assistant.exported)
+        val updater = manager.getActivityInfo(android.content.ComponentName(context, app.gamenative.updates.AiDevUpdateActivity::class.java), 0)
+        assertFalse(updater.exported)
         val providers = manager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PROVIDERS).providers.orEmpty()
         assertTrue(providers.any { it.authority == "$expectedPackage.fileprovider" })
         if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) assertFalse(providers.any { it.authority == "app.gamenative.fileprovider" })

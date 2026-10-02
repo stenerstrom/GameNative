@@ -139,6 +139,12 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.Pluvia" />
 
+        <activity
+            android:name=".updates.AiDevUpdateActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Pluvia" />
+
         <!-- GOG OAuth (in-app WebView; intercepts redirect for automatic code capture) -->
         <activity
             android:name=".ui.screen.auth.GOGOAuthActivity"

@@ -24,7 +24,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 interface GameAiProvider {
-    suspend fun analyze(model: String, prompt: String, diagnostics: String): AssistantProtocol.Reply
+    suspend fun accounts(): ChatGptProvider.Accounts
+    suspend fun select(id: String)
+    suspend fun signIn(existingId: String?, openBrowser: suspend (String) -> Unit)
+    suspend fun models(): List<ChatGptProvider.Model>
+    suspend fun verify(model: String): String
+    suspend fun signOut(): Boolean
+    suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>): AssistantProtocol.Reply
 }
 
 /** Official public OAuth + Responses route. There is deliberately no API-key billing fallback. */
@@ -37,7 +43,7 @@ class ChatGptProvider(context: Context) : GameAiProvider {
     data class Model(val slug: String, val name: String)
     data class Accounts(val accounts: List<Account>, val selected: String?)
 
-    suspend fun accounts(): Accounts = io {
+    override suspend fun accounts(): Accounts = io {
         val data = credentials.load()
         Accounts(profiles(data).mapIndexed { index, p ->
             Account(p.getString("client_id"), "Connection ${index + 1}: ${p.optString("email", "sign-in incomplete")}",
@@ -45,13 +51,13 @@ class ChatGptProvider(context: Context) : GameAiProvider {
         }, data.optString("selected").takeIf { it.isNotBlank() })
     }
 
-    suspend fun select(id: String) = io {
+    override suspend fun select(id: String): Unit = io {
         val data = credentials.load()
         require(profiles(data).any { it.getString("client_id") == id })
         credentials.save(data.put("selected", id))
     }
 
-    suspend fun signIn(existingId: String?, openBrowser: suspend (String) -> Unit) = io {
+    override suspend fun signIn(existingId: String?, openBrowser: suspend (String) -> Unit): Unit = io {
         val data = credentials.load()
         val previous = existingId?.let { id -> profiles(data).single { it.getString("client_id") == id } }
         LoopbackLogin().use { login ->
@@ -93,7 +99,7 @@ class ChatGptProvider(context: Context) : GameAiProvider {
         }
     }
 
-    suspend fun models(): List<Model> = io {
+    override suspend fun models(): List<Model> = io {
         val token = accessToken()
         val json = jsonRequest(Request.Builder().url("$RESOURCE/models").cacheControl(CacheControl.FORCE_NETWORK)
             .header("Authorization", "Bearer $token").build())
@@ -102,20 +108,20 @@ class ChatGptProvider(context: Context) : GameAiProvider {
             .map { Model(it.getString("slug"), it.getString("display_name")) }
     }
 
-    suspend fun verify(model: String): String = io {
+    override suspend fun verify(model: String): String = io {
         val body = JSONObject().put("model", model).put("store", false).put("stream", true)
             .put("input", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply with exactly: ChatGPT plan connection verified.")))
         stream(body).also { check(it.text.isNotBlank()) { "Verification response was empty" } }.text
     }
 
-    override suspend fun analyze(model: String, prompt: String, diagnostics: String): AssistantProtocol.Reply = io {
-        require(prompt.isNotBlank() && prompt.length <= 4000)
-        require(diagnostics.length <= 60_000)
-        stream(AssistantProtocol.request(model, DiagnosticRedactor.text(prompt), diagnostics))
+    override suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>): AssistantProtocol.Reply = io {
+        stream(AssistantProtocol.request(model, prompt, diagnostics, history)).also {
+            check(diagnostics != null || it.proposal == null) { "Unexpected configuration proposal without attached settings" }
+        }
     }
 
     /** Clears local secrets even if offline, but retains the registration and host ID. */
-    suspend fun signOut(): Boolean = io {
+    override suspend fun signOut(): Boolean = io {
         val data = credentials.load()
         val profile = selected(data)
         val refresh = profile.optString("refresh_token")

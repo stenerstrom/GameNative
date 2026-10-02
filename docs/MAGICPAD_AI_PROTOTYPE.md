@@ -4,6 +4,22 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: vanlig chatt utan debug run
+
+Version **1.2.1-ai-dev.3** visar chatt först. Skriv i **Message** och tryck **Send message**. Varken debug run, spellogg eller en läst containerkonfiguration behövs. Assistenten kan svara på vanliga frågor och följdfrågor. Den är fortfarande vår native-assistent som använder ChatGPT-abonnemanget, inte en installerad Codex-process.
+
+Vid öppning av en sparad anslutning med abonnemangstillstånd hämtas modellistan automatiskt. Det gör inget AI-anrop. I tidigare versioner återställdes det tillfälliga modellvalet när vyn öppnades igen, utan ny modellhämtning, vilket kunde lämna Skicka avstängd. Exakt tillstånd på användarens foto av knappen är inte känt. Nu visas ett konkret skäl om Skicka är avstängd; konto- och modellval finns under **Account and model**. Misslyckad kataloghämtning kan provas igen med **Refresh models**.
+
+**Attach settings and log (optional)** är avstängd från början. Välj den för att läsa och granska spelets konfiguration samt en eventuell logg. Konfigurationen går att analysera även utan logg. Bara med en uttryckligen bifogad konfiguration erbjuds modellens begränsade ändringsverktyg. Backup, oförändrad konfigurationshash, användargodkännande och återställning fungerar som tidigare.
+
+De senaste åtta fråge-/svarsparen följer med vid följdfrågor som en begränsad textkonversation i `input`, med `store:false` och `stream:true`. Gamla råa loggbilagor och verktygsanrop spelas inte upp igen. Svar kan dock innehålla uppgifter från tidigare bilagor; **New conversation** rensar det sammanhanget. Byte av konto rensar historiken och stänger av bilagan. Historiken finns bara i vyns minne, överlever rotation men inte att vyn avslutas eller processen stängs. Hemlighetsfiltrering används också för konversationstexten. Inga nya API-nycklar eller betalningsvägar införs.
+
+Prova på MagicPad: uppdatera över AI Dev utan att avinstallera, öppna assistenten med befintlig anslutning, skriv ”Hej, vad kan du hjälpa mig med?” utan bilaga och ställ sedan en följdfråga. Prova därefter att bifoga konfiguration utan logg. Chattändringen är inte ännu testad med ett riktigt AI-anrop på enhet; det verifierade anropet nedan gjordes med föregående version.
+
+Verifierat lokalt: **98 tester passerar, 0 fel, 0 hoppade över**, varav 14 nya tester för vanlig chatt, begränsad historik, filtrering, automatisk modellhämtning vid återöppning, opt-in-bilaga utan logg, katalogfel/omförsök, kontobyte, avbrutet/misslyckat anrop och avvisning av oombedda konfigurationsförslag utan bilaga. ViewModel-testerna körs i Robolectric med en testprovider utan verkliga AI-anrop. Tidigare tester av strömmar, OAuth och backup/restore passerar också. APK:n bygger, signaturen verifieras och paket/signeringscertifikat matchar tidigare AI Dev. Den nya layouten behöver fortfarande provas på MagicPad.
+
+APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.3.apk`, även som `build/ai-dev/GameNative-AI-Dev.apk`. SHA-256: `367563a1f8de5e3aad6f5e45796340260fae4e06dc9f305b843f5358184f3457`. Bygg-/testloggar: `build/ai-dev/verification/chat-build-tests.log`, `chat-final-build.log` och `chat/TEST-*.xml`.
+
 ## Uppdatering 2026-10-02: modellista och svarsläsning
 
 Version **1.2.1-ai-dev.2** kan installeras som uppdatering över den första AI Dev-APK:n. Samma paket och signeringsnyckel används; avinstallera inte appen eller rensa dess data för uppdateringen. Versionsnumret visas högst upp i AI-vyn.
@@ -18,13 +34,13 @@ Kvarstående användbarhetsproblem: samtyckesfliken kan visa en snurrande indika
 
 Verifierat för denna uppdatering: den nya regressionssviten gav 6 fel av 12 tester före rättningen; efter rättningen passerar alla **84** utvalda tester (40 assistenttester och 44 befintliga FPS-/containertester). APK:n bygger, APK-signaturen verifieras och certifikatets SHA-256 är samma som i första APK:n. Paketet är fortfarande `app.gamenative.aidev`. Inga riktiga modell-anrop har gjorts från byggmiljön. Bygglogg och test-XML finns lokalt i `build/ai-dev/verification/stream-fix-build-tests.log` respektive `build/ai-dev/verification/stream-fix/`.
 
-Aktuell APK: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.2.apk`, även kopierad till den vanliga sökvägen `build/ai-dev/GameNative-AI-Dev.apk`. SHA-256: `c31b9993a6cf35022aee0154554677446af0599b8d6b583cb591c8fd46c8a052`.
+APK för svarsläsningsrättningen: `build/ai-dev/GameNative-AI-Dev-1.2.1-ai-dev.2.apk`. SHA-256: `c31b9993a6cf35022aee0154554677446af0599b8d6b583cb591c8fd46c8a052`. Den vanliga sökvägen `build/ai-dev/GameNative-AI-Dev.apk` innehåller det senaste bygget.
 
 ## Vad som implementeras
 
 En Kotlin-assistent i Android-appen för ett valt, installerat spel. Egen provider använder officiell **Sign in with ChatGPT** och `POST https://api.openai.com/v1/responses` direkt. Ingen Codex-binär, separat dator/server, importerad Codex-token eller API-nyckel behövs vid användning. Inloggningssteget öppnar OpenAI i en Android Custom Tab/systemwebbläsare; användaren återvänder sedan till appen. Fråga, diagnostik, svar, godkännande och återställning finns i appen.
 
-Milstolpen är en avgränsad analys med ett förslag per anrop, utan autonom agentloop. Modellen kan föreslå befintlig FPS-begränsning och en liten tillåten uppsättning containerupplösningar. Appen sköter läsning, validering, tillämpning och återställning. Modellen kan inte starta spel, köra shell, ändra godtyckliga filer eller skriva inställningar på egen hand.
+Assistenten stöder vanlig textchatt med följdfrågor och valfri konfigurations-/logganalys med ett förslag per anrop, utan autonom agentloop. När inställningar bifogas kan modellen föreslå befintlig FPS-begränsning och en liten tillåten uppsättning containerupplösningar. Appen sköter läsning, validering, tillämpning och återställning. Modellen kan inte starta spel, köra shell, ändra godtyckliga filer eller skriva inställningar på egen hand.
 
 Det finns också **Local 30 FPS test proposal (no AI)**. Detta är ett uttryckligen lokalt provförslag som testar ändringsflödet utan konto eller nätverk, och är inte ett AI-svar.
 
@@ -100,7 +116,7 @@ Flaggan `-PaiDev=true` aktiverar funktionen endast i debug-bygget:
 
 - Appnamn: **GameNative AI Dev**.
 - Paket-ID: **`app.gamenative.aidev`**.
-- Version: upstream-version med `-ai-dev.2` i den aktuella utvecklingsversionen.
+- Version: upstream-version med `-ai-dev.3` i den aktuella utvecklingsversionen.
 - Kodnamespace förblir `app.gamenative`, så upstream/JNI-namn och klassreferenser behålls.
 - `FileProvider` och AndroidX Startup får unika authorities från applicationId.
 - Launcher-aliasarnas klassnamn fortsätter vara `app.gamenative.MainActivityAlias…`, men deras komponentpaket är utvecklingsappens; namn och label kontrolleras i sammanfogat manifest.
@@ -153,12 +169,12 @@ export GRADLE_USER_HOME=/tmp/gamenative-toolchain/gradle
 1. För över `GameNative-AI-Dev.apk` till surfplattan och öppna den i filhanteraren. Tillåt installation från den valda appen. Alternativt med USB-felsökning: `adb install -r build/ai-dev/GameNative-AI-Dev.apk`.
 2. Kontrollera att både originalet och **GameNative AI Dev** finns kvar. Starta AI Dev och slutför GameNatives vanliga hämtning/installation av körmiljön.
 3. Logga in i önskad spelbutik eller lägg till ett eget spel. Starta spelet en gång eller skapa dess container via **Edit container**. Ingen del av prototypen antar vilka grafikdrivrutiner/SoC-egenskaper MagicPad har.
-4. Välj **AI debug run**, reproducera ett kort avsnitt och avsluta spelet. Stäng rapportdialogen utan att skicka/radera rapporten. Alternativt **Play with diagnostics** för wrapper-logg. Vanlig spelstart garanterar inte att en spelbunden logg sparas.
-5. Öppna spelets meny → **AI assistant · ChatGPT**. Granska konfiguration, loggdatum, loggutdrag och tillgängliga mätvärden. Avsaknad av logg/prestandarapport visas uttryckligen.
-6. Prova först **Local 30 FPS test proposal (no AI)** → granska → **Back up and apply these changes**. Kontrollera nästa spelstarts FPS-gräns i snabbmenyn. Stäng appen, öppna den igen och välj **Restore previous settings**. Bekräfta att tidigare FPS-inställning återkommit. Prova också att ändra ett annat fält och att det bevaras vid restore.
+4. Valfritt för logganalys: välj **AI debug run**, reproducera ett kort avsnitt och avsluta spelet. Stäng rapportdialogen utan att skicka/radera rapporten. Alternativt **Play with diagnostics** för wrapper-logg. Detta behövs inte för vanlig chatt eller konfigurationsanalys.
+5. Öppna spelets meny → **AI assistant · ChatGPT**. För vanlig chatt går du direkt till **Message**. För konfigurationsanalys väljer du **Attach settings and log (optional)** och granskar innehållet. Avsaknad av logg/prestandarapport visas uttryckligen.
+6. För ett lokalt ändringsprov: **Review optional diagnostics → Read configuration and game log → Local 30 FPS test proposal (no AI)** → granska → **Back up and apply these changes**. Kontrollera nästa spelstarts FPS-gräns i snabbmenyn. Stäng appen, öppna den igen och välj **Restore previous settings**. Bekräfta att tidigare FPS-inställning återkommit. Prova också att ändra ett annat fält och att det bevaras vid restore.
 7. Välj **Continue with ChatGPT** om du inte redan har en ansluten profil. Granska OpenAI:s officiella samtycke på surfplattan. Om fliken ligger kvar, återvänd med Androids Tillbaka och kontrollera appens status. En kvarliggande flik bevisar inte att inloggningen är klar. När appen visar anslutningen väljer du modell och **Verify AI access**; befintlig anslutning behöver inte registreras på nytt för varje test. Spara bara felkod/request-ID vid fel, aldrig tokens eller hela OAuth-returadressen.
 8. Ett avslutat textsvar från knappen är beviset på att just den anslutningen/modellen fungerade. Ett konto i listan eller en modellista är inte samma bevis.
-9. Skriv till exempel ”Det här spelet hackar, hjälp mig att få stabila 30 FPS.” Redigera bort känslig diagnostik och tryck **Send reviewed diagnostics and analyze**. Granska förklaring, berörda inställningar och osäkerhet innan du tillämpar.
+9. Skriv till exempel ”Det här spelet hackar, hjälp mig att få stabila 30 FPS.” Tryck **Send message** för att börja prata om problemet. För ett tillämpbart förslag bifogar du inställningarna, redigerar bort känslig diagnostik och trycker **Send with reviewed settings**. Granska förklaring, berörda inställningar och osäkerhet innan du tillämpar.
 10. Prova avböjt samtycke, offline-läge, avbruten inloggning, rotation och appomstart. Prova Sign out och återinloggning i samma anslutning samt en separat workspace-anslutning. Vid nekad abonnemangsåtkomst fungerar det lokala ändrings-/återställningsflödet fortfarande.
 
 Vid återställningskonflikt: backup behålls; sätt det berörda fältet manuellt till experimentets värde eller originalvärdet och försök igen. Återställ inte en godtycklig gammal helkonfiguration över nyare inställningar. Om originalet redan var 30 FPS är ett lokalt 30 FPS-prov en no-op och avvisas utan backup.

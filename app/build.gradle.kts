@@ -174,7 +174,7 @@ android {
             buildConfigField("boolean", "AI_ASSISTANT_ENABLED", aiDev.toString())
             if (aiDev) {
                 applicationIdSuffix = ".aidev"
-                versionNameSuffix = "-ai-dev.2"
+                versionNameSuffix = "-ai-dev.3"
                 manifestPlaceholders["appLabel"] = "GameNative AI Dev"
                 manifestPlaceholders["launchScheme"] = "gamenative-aidev"
                 manifestPlaceholders["homeScheme"] = "gamenative-aidev-home"

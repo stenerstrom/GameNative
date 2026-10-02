@@ -37,7 +37,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         val candidates = listOfNotNull(DebugReportUtils.wineLogFile(context, appId), DiagnosticsLog.file(context, appId),
             report?.let { DebugReportUtils.logFile(it) }).filter { it.isFile && it.length() > 0 }
         val log = candidates.maxByOrNull { it.lastModified() }
-        val logText = if (log == null) "No game-specific log available. Run AI debug run or Play with diagnostics first, then return here." else runCatching {
+        val logText = if (log == null) "No game-specific log available. Chat and configuration analysis are still available. An optional AI debug run can collect a log if needed." else runCatching {
             val raw = if (log.extension == "gz") GZIPInputStream(log.inputStream()).use { readBounded(it, 8 * 1024 * 1024 + 1024) }
                 else readSmall(log, 8 * 1024 * 1024 + 1024)
             // Sanitize complete bounded input before taking the tail; never cut a credential before filtering it.
@@ -54,7 +54,8 @@ class GameAssistantTools(private val context: Context, private val appId: String
         return Snapshot(AssistantProtocol.sha256(bytes), result.toString(2))
     }
 
-    fun hasBackup(): Boolean = transaction().hasBackup()
+    private val backupFile: File get() = File(context.noBackupFilesDir, "assistant/undo/$appId.json")
+    fun hasBackup(): Boolean = backupFile.isFile
     fun applyValidated(proposal: ConfigProposal, snapshotHash: String) {
         checkStopped()
         transaction().apply(snapshotHash, proposal)
@@ -67,7 +68,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         check(!SteamService.keepAlive) { "Stop the game/container before changing or restoring settings" }
     }
     private fun transaction(): ConfigTransaction = ConfigTransaction(ContainerUtils.getContainer(context, appId).configFile,
-        File(context.noBackupFilesDir, "assistant/undo/$appId.json"))
+        backupFile)
 
     private fun readPerformance(report: File): Any = runCatching {
         val source = JSONObject(readSmall(DebugReportUtils.perfFile(report), 2_000_000))

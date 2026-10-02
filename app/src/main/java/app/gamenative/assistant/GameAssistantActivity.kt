@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -20,6 +21,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,6 +32,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -77,16 +83,31 @@ data class AssistantUiState(
     val models: List<ChatGptProvider.Model> = emptyList(),
     val modelsUpdatedAt: Long? = null,
     val selectedModel: String = "",
-    val prompt: String = "Det här spelet hackar, hjälp mig att få stabila 30 FPS.",
+    val prompt: String = "",
     val diagnostics: String = "",
+    val includeDiagnostics: Boolean = false,
+    val configurationReady: Boolean = false,
+    val history: List<AssistantProtocol.ChatTurn> = emptyList(),
     val answer: String = "",
     val proposal: ConfigProposal? = null,
     val backup: Boolean = false,
     val verified: Boolean = false,
-)
+) {
+    val sendBlockReason: String?
+        get() = when {
+            busy -> "Wait for the current action to finish, or cancel it."
+            accounts.accounts.none { it.id == accounts.selected && it.planEnabled } -> "Connect your ChatGPT plan to send a message."
+            selectedModel.isBlank() -> "No model selected. Open Account and model, then Refresh models."
+            prompt.isBlank() -> "Write a message to start or continue the conversation."
+            includeDiagnostics && (!configurationReady || diagnostics.isBlank()) -> "Read the optional settings, or turn off Attach settings and log to chat without them."
+            else -> null
+        }
+}
 
-class GameAssistantViewModel(application: Application) : AndroidViewModel(application) {
-    private val provider = ChatGptProvider(application)
+class GameAssistantViewModel @JvmOverloads constructor(
+    application: Application,
+    private val provider: GameAiProvider = ChatGptProvider(application),
+) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(AssistantUiState())
     val state = mutable.asStateFlow()
     private var tools: GameAssistantTools? = null
@@ -99,19 +120,34 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
         mutable.value = AssistantUiState(game = game)
         snapshotHash = null
         tools = null
-        action("Reading game diagnostics…") {
+        action("Opening chat…") {
             tools = GameAssistantTools(getApplication(), game)
-            refreshDiagnostics()
+            refreshAccounts()
+            if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) loadModels()
+            mutable.update { it.copy(status = "Ready to chat. A debug run is optional.") }
         }
     }
     fun prompt(value: String) { mutable.update { it.copy(prompt = value.take(4000)) } }
     fun model(value: String) { mutable.update { it.copy(selectedModel = value, verified = false, proposal = null) } }
     fun editDiagnostics(value: String) { mutable.update { it.copy(diagnostics = value.take(60_000), proposal = null) } }
-    fun read() = action("Reading game diagnostics…") { refreshDiagnostics() }
+    fun read() = action("Reading optional game settings and log…") {
+        refreshDiagnostics()
+        mutable.update { it.copy(status = "Settings loaded for review. You can chat even when no log is available.") }
+    }
+    fun attachDiagnostics(include: Boolean) {
+        if (state.value.busy) return
+        if (include && !state.value.configurationReady) action("Reading optional game settings and log…") {
+            refreshDiagnostics()
+            mutable.update { it.copy(includeDiagnostics = true, status = "Review the optional attachment before sending.") }
+        } else mutable.update { it.copy(includeDiagnostics = include, proposal = null) }
+    }
+    fun clearChat() {
+        if (!state.value.busy) mutable.update { it.copy(history = emptyList(), answer = "", proposal = null, status = "New conversation. A debug run is optional.") }
+    }
     fun cancel() { job?.cancel() }
 
     fun connect(newAccount: Boolean, openBrowser: (String) -> Unit) = action("Complete sign-in in the browser, then return here. Account eligibility has not been verified.") {
-        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null) }
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, history = emptyList(), answer = "", includeDiagnostics = false) }
         provider.signIn(if (newAccount) null else state.value.accounts.selected) { url -> withContext(Dispatchers.Main) { openBrowser(url) } }
         refreshAccounts()
         if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) {
@@ -121,9 +157,10 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
     fun select(id: String) = action("Selecting connection…") {
         provider.select(id)
-        mutable.update { it.copy(models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, answer = "") }
+        mutable.update { it.copy(models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, answer = "", history = emptyList(), includeDiagnostics = false) }
         refreshAccounts()
-        mutable.update { it.copy(status = "Connection selected. Refresh models and verify access.") }
+        if (state.value.accounts.accounts.any { it.id == id && it.planEnabled }) loadModels()
+        mutable.update { it.copy(status = "Connection selected. Previous conversation cleared.") }
     }
     fun refreshModels() = action("Loading available models…") { loadModels(); mutable.update { it.copy(status = "Model catalog loaded; inference remains unverified.") } }
     fun verify() = action("Verifying an AI response using your ChatGPT plan…") {
@@ -133,15 +170,28 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
     fun disconnect() = action("Signing out…") {
         val revoked = provider.signOut()
-        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, answer = "",
+        mutable.update { it.copy(verified = false, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, answer = "", history = emptyList(), includeDiagnostics = false,
             status = if (revoked) "Signed out. Registration retained for reconnecting." else "Signed out locally. Remote revocation was not confirmed; disconnect this app in ChatGPT settings.") }
     }
-    fun analyze() = action("Analyzing the reviewed configuration and log with your ChatGPT plan…") {
-        check(snapshotHash != null) { "Read a game configuration first" }
-        mutable.update { it.copy(proposal = null, answer = "", verified = false) }
-        val reply = provider.analyze(state.value.selectedModel, state.value.prompt, DiagnosticRedactor.text(state.value.diagnostics))
-        mutable.update { it.copy(answer = reply.text, proposal = reply.proposal, verified = true,
-            status = "AI response completed. Review any experiment before applying it.") }
+    fun send() {
+        val before = state.value
+        val blocked = before.sendBlockReason
+        if (blocked != null) {
+            if (!before.busy) mutable.update { it.copy(status = blocked) }
+            return
+        }
+        action("Waiting for a reply using your ChatGPT plan…") {
+            val diagnostics = if (before.includeDiagnostics) {
+                check(snapshotHash != null) { "Read settings before attaching them, or chat without an attachment." }
+                DiagnosticRedactor.text(before.diagnostics)
+            } else null
+            mutable.update { it.copy(proposal = null, answer = "", verified = false) }
+            val reply = provider.chat(before.selectedModel, before.prompt, diagnostics, before.history)
+            check(diagnostics != null || reply.proposal == null) { "Unexpected configuration proposal without attached settings" }
+            val history = (before.history + AssistantProtocol.conversationTurn(before.prompt, reply)).takeLast(AssistantProtocol.HISTORY_TURNS)
+            mutable.update { it.copy(history = history, prompt = "", proposal = reply.proposal, verified = true,
+                status = "Reply received. You can ask a follow-up question.") }
+        }
     }
     fun localProposal() = action("Preparing local experiment…") {
         check(snapshotHash != null) { "Read a game configuration first" }
@@ -163,9 +213,11 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
     }
 
     private suspend fun refreshDiagnostics() {
+        snapshotHash = null
+        mutable.update { it.copy(configurationReady = false, diagnostics = "", proposal = null) }
         val snapshot = withContext(Dispatchers.IO) { requireNotNull(tools).readDiagnostics() }
         snapshotHash = snapshot.hash
-        mutable.update { it.copy(diagnostics = snapshot.text, proposal = null) }
+        mutable.update { it.copy(diagnostics = snapshot.text, configurationReady = true, proposal = null) }
     }
     private suspend fun refreshAccounts() {
         val accounts = provider.accounts()
@@ -188,7 +240,7 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 mutable.update { it.copy(status = DiagnosticRedactor.text(e.message ?: "Operation failed").take(1500)) }
             } finally {
-                // Local state only: no surprise network requests on opening this screen.
+                // Refresh local account and undo state without issuing another network request.
                 try {
                     refreshAccounts()
                     val backup = withContext(Dispatchers.IO) { tools?.hasBackup() ?: false }
@@ -204,47 +256,80 @@ class GameAssistantViewModel(application: Application) : AndroidViewModel(applic
 private fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrowser: (String) -> Unit) {
     val state by model.state.collectAsState()
     val selected = state.accounts.accounts.firstOrNull { it.id == state.accounts.selected }
+    var accountExpanded by rememberSaveable(state.game) { mutableStateOf(false) }
+    var diagnosticsExpanded by rememberSaveable(state.game) { mutableStateOf(false) }
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().imePadding().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("AI assistant · ${state.game}", style = MaterialTheme.typography.headlineSmall)
             Text("GameNative AI Dev · ${BuildConfig.VERSION_NAME} · experimental", style = MaterialTheme.typography.labelLarge)
             Text("${if (state.verified) "AI response verified" else "AI access not verified"} · ${if (selected?.planEnabled == true) "Using ChatGPT plan" else "ChatGPT plan permission not enabled"}")
-            state.accounts.accounts.forEach { account ->
-                OutlinedButton(onClick = { model.select(account.id) }, enabled = !state.busy) {
-                    Text("${if (account.id == state.accounts.selected) "✓ " else ""}${account.label}")
+            Text(state.models.firstOrNull { it.slug == state.selectedModel }?.name ?: "Choose a model to chat")
+            TextButton(onClick = { accountExpanded = !accountExpanded }) { Text(if (accountExpanded) "Hide account and model" else "Account and model") }
+            if (accountExpanded || selected?.planEnabled != true) {
+                state.accounts.accounts.forEach { account ->
+                    OutlinedButton(onClick = { model.select(account.id) }, enabled = !state.busy) {
+                        Text("${if (account.id == state.accounts.selected) "✓ " else ""}${account.label}")
+                    }
                 }
-            }
-            Button(onClick = { model.connect(false, openBrowser) }, enabled = !state.busy) { Text("Continue with ChatGPT") }
-            TextButton(onClick = { model.connect(true, openBrowser) }, enabled = !state.busy) { Text("Add account / workspace") }
-            if (selected?.connected == true) TextButton(onClick = { model.disconnect() }, enabled = !state.busy) { Text("Sign out") }
-            TextButton(onClick = { openBrowser(ChatGptProvider.USAGE_URL) }) { Text("Manage usage and app access") }
-            OutlinedButton(onClick = { model.refreshModels() }, enabled = !state.busy && selected?.planEnabled == true) { Text("Refresh models") }
-            Text("Models supplied by OpenAI for this connection. This catalog can differ from the choices shown in ChatGPT or Codex.")
-            state.modelsUpdatedAt?.let { Text("Catalog fetched: ${DateFormat.getDateTimeInstance().format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
-            state.models.forEach { available ->
-                TextButton(onClick = { model.model(available.slug) }, enabled = !state.busy) {
-                    Text("${if (available.slug == state.selectedModel) "✓ " else ""}${available.name}")
+                Button(onClick = { model.connect(false, openBrowser) }, enabled = !state.busy) { Text("Continue with ChatGPT") }
+                TextButton(onClick = { model.connect(true, openBrowser) }, enabled = !state.busy) { Text("Add account / workspace") }
+                if (selected?.connected == true) TextButton(onClick = { model.disconnect() }, enabled = !state.busy) { Text("Sign out") }
+                TextButton(onClick = { openBrowser(ChatGptProvider.USAGE_URL) }) { Text("Manage usage and app access") }
+                OutlinedButton(onClick = { model.refreshModels() }, enabled = !state.busy && selected?.planEnabled == true) { Text("Refresh models") }
+                Text("Models supplied by OpenAI for this connection. This catalog can differ from the choices shown in ChatGPT or Codex.")
+                state.modelsUpdatedAt?.let { Text("Catalog fetched: ${DateFormat.getDateTimeInstance().format(Date(it))}", style = MaterialTheme.typography.bodySmall) }
+                state.models.forEach { available ->
+                    TextButton(onClick = { model.model(available.slug) }, enabled = !state.busy) {
+                        Text("${if (available.slug == state.selectedModel) "✓ " else ""}${available.name}")
+                    }
                 }
+                if (state.selectedModel.isNotBlank()) Text("Model ID: ${state.selectedModel}", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { model.verify() }, enabled = !state.busy && state.selectedModel.isNotBlank()) { Text("Verify AI access") }
+                Text("If the sign-in browser stays open after approval, use Android Back to return here and check the connection.")
             }
-            if (state.selectedModel.isNotBlank()) Text("Model ID: ${state.selectedModel}", style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = { model.verify() }, enabled = !state.busy && state.selectedModel.isNotBlank()) { Text("Verify AI access") }
             if (state.busy) {
                 CircularProgressIndicator()
                 TextButton(onClick = { model.cancel() }) { Text("Cancel") }
             }
             SelectionContainer { Text(state.status, style = MaterialTheme.typography.bodyMedium) }
-            Text("Diagnostics", style = MaterialTheme.typography.titleLarge)
-            Text("Review before sending. Only this text and your question go to OpenAI. Filtering reduces accidental disclosure but cannot recognize every secret; remove sensitive details here. No data is sent by reading diagnostics.")
-            OutlinedButton(onClick = { model.read() }, enabled = !state.busy) { Text("Read configuration and game log") }
-            OutlinedTextField(value = state.diagnostics, onValueChange = model::editDiagnostics, enabled = !state.busy,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp), label = { Text("Reviewed diagnostic snapshot") }, maxLines = 12)
-            Text("To collect a log: close this view, select AI debug run, reproduce the issue and exit the game. Return here before sending/deleting the debug report. Stop the game before applying or restoring settings.")
-            OutlinedTextField(value = state.prompt, onValueChange = model::prompt, enabled = !state.busy,
-                modifier = Modifier.fillMaxWidth(), label = { Text("What should we investigate?") }, maxLines = 5)
-            Button(onClick = { model.analyze() }, enabled = !state.busy && selected?.planEnabled == true && state.selectedModel.isNotBlank() && state.diagnostics.isNotBlank() && state.prompt.isNotBlank()) {
-                Text("Send reviewed diagnostics and analyze")
+            Text("Chat", style = MaterialTheme.typography.titleLarge)
+            Text("Ask anything or describe a game problem. No debug run is required.")
+            state.history.forEach { turn ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("You", style = MaterialTheme.typography.labelLarge)
+                        SelectionContainer { Text(turn.user) }
+                        Text("Assistant", style = MaterialTheme.typography.labelLarge)
+                        SelectionContainer { Text(turn.assistant) }
+                    }
+                }
             }
-            OutlinedButton(onClick = { model.localProposal() }, enabled = !state.busy && state.diagnostics.isNotBlank()) { Text("Local 30 FPS test proposal (no AI)") }
+            if (state.history.isNotEmpty()) TextButton(onClick = model::clearChat, enabled = !state.busy) { Text("New conversation") }
+            OutlinedTextField(value = state.prompt, onValueChange = model::prompt, enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(), label = { Text("Message") },
+                placeholder = { Text("For example: How can I get a steadier 30 FPS?") }, maxLines = 5)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = state.includeDiagnostics, onCheckedChange = {
+                    if (it) diagnosticsExpanded = true
+                    model.attachDiagnostics(it)
+                }, enabled = !state.busy)
+                Text("Attach settings and log (optional)")
+            }
+            TextButton(onClick = { diagnosticsExpanded = !diagnosticsExpanded }) { Text(if (diagnosticsExpanded) "Hide optional diagnostics" else "Review optional diagnostics") }
+            if (diagnosticsExpanded || state.includeDiagnostics) {
+                Text("Settings can be attached even without a log. Review and remove sensitive details before sending. Filtering cannot recognize every secret.")
+                OutlinedButton(onClick = model::read, enabled = !state.busy) { Text("Read configuration and game log") }
+                OutlinedTextField(value = state.diagnostics, onValueChange = model::editDiagnostics, enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp), label = { Text("Optional diagnostic attachment") }, maxLines = 12)
+                Text("If needed, AI debug run can collect a log. It is optional. Stop the game before applying or restoring settings.")
+            }
+            Text("Sending shares your message and the last 8 exchanges with OpenAI. Settings and logs are attached only when checked. Earlier replies can still contain details from past attachments; use New conversation to clear them.", style = MaterialTheme.typography.bodySmall)
+            Text("Conversation history lasts while this screen is open, including rotation.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = model::send, enabled = state.sendBlockReason == null) {
+                Text(if (state.includeDiagnostics) "Send with reviewed settings" else "Send message")
+            }
+            state.sendBlockReason?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (diagnosticsExpanded) OutlinedButton(onClick = model::localProposal, enabled = !state.busy && state.configurationReady) { Text("Local 30 FPS test proposal (no AI)") }
             if (state.answer.isNotBlank()) SelectionContainer { Text(state.answer) }
             state.proposal?.let { proposal ->
                 Card {

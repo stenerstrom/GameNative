@@ -52,6 +52,28 @@ class AssistantChatViewModelTest {
         parentFile!!.mkdirs(); writeText("[Graphics]\r\nFPS=60\r\n")
     }
 
+    @Test fun modAccessPersistsOnlyForItsGameAndAccountAndRevokesWithGameAccess() {
+        val model = opened()
+        model.allowMods(true); idle(model)
+        assertFalse(model.state.value.modAccess)
+        model.attachDiagnostics(true); idle(model)
+        model.allowMods(true); idle(model)
+        assertTrue(model.state.value.modAccess)
+        assertTrue(opened().state.value.modAccess)
+        model.select("second"); idle(model)
+        assertFalse(model.state.value.modAccess)
+        model.select("first"); idle(model)
+        assertTrue(model.state.value.modAccess)
+        model.initialize("STEAM_99"); idle(model)
+        assertFalse(model.state.value.modAccess)
+        model.initialize(game); idle(model)
+        assertTrue(model.state.value.modAccess)
+        model.attachDiagnostics(false); idle(model)
+        assertFalse(model.state.value.modAccess)
+        model.attachDiagnostics(true); idle(model)
+        assertFalse(model.state.value.modAccess)
+    }
+
     @Test fun fileConversationNeedsSeparateOptInAndAppliesReviewedEditWithUndoAfterReopening() {
         SteamService.keepAlive = false
         val file = gameFile() // No container config/log is necessary for editing this game's own INI.

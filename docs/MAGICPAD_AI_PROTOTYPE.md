@@ -4,6 +4,50 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-02: modhantering från chatten
+
+**1.2.1-ai-dev.7**, Android `versionCode=27`, kopplar agenten till GameNatives befintliga modmotor. Ingen ytterligare AI-tjänst eller debitering tillkommer. Detta är fortfarande en native-agent med egna verktyg via den redan anslutna ChatGPT-planen, inte en Codex app-server eller generell datormiljö på Android.
+
+### Prova på MagicPad
+
+1. Stäng spelet och uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.7-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-27/GameNative-AI-Dev-1.2.1-ai-dev.7.apk) ovanpå AI Dev. Paketet `app.gamenative.aidev` och signeringsnyckeln är oförändrade. Avinstallera inte.
+2. Öppna spelets assistent → **Spelåtkomst** → **Tillåt spelverktyg** och **Tillåt modhantering** → **Klart**. Modåtkomst är ny, avstängd från början och sparas per spel och ChatGPT-anslutning. Filåtkomst är ett separat val för att redigera installerade mods textkonfigurationer.
+3. Tryck **+** vid meddelandefältet. Välj ett modarkiv, lösa filer eller en mapp i Androids filväljare. Paketet kopieras till modbiblioteket. Inga modfiler installeras i spelet av själva importen. Meddelandefältet fylls med en fråga om att granska paketet; tryck **Skicka**.
+4. Assistenten får läsa det importerade paketets metadata, fillista och instruktioner. Kortet visar vald filplacering, vilka filer som ersätts och eventuella varningar. DLL/laddarfiler kräver kryssrutan på kortet. Tryck **Tillämpa modändring** för att faktiskt installera. Spelcontainern måste vara stoppad.
+5. Starta spelet och kontrollera funktionen. Stäng spelet. **Ångra ändring** återställer försöket även efter appomstart; **Behåll** avslutar återställningspunkten inför nästa försök. Modmotorns originalbackuper behålls för senare avaktivering.
+6. Skriv exempelvis ”Kontrollera mina moddar”, ”Inaktivera Test loader” eller ”Aktivera modden igen”. Avaktivering tar bort spårade modfiler och återställer original; det importerade paketet behålls. Ångra avaktivering återinstallerar samma granskade bytes.
+7. **⋮ → Modbibliotek och Nexus** öppnar appens fullständiga modhantering. Här finns befintlig Nexus-inloggning/nedladdning, FOMOD-val, modprofiler och laddordning för delade filer. Dessa mer avancerade val utförs i det befintliga gränssnittet, inte automatiskt av agenten. Nexus-åtkomst förutsätter Nexus egen behörighet; ChatGPT-inloggningen ger inte den behörigheten.
+
+### Verktyg och faktisk omfattning
+
+| Verktyg/funktion | Vad agenten kan göra |
+| --- | --- |
+| `read_capabilities` | Läsa vilka anslutna verktyg och behörigheter som finns; undvika att lova verktyg som en vanlig Codex-miljö kan ha men Android-appen saknar. |
+| `read_mods` | Läsa valda spelets importerade/installerade moddar, versionsnamn, status och aktiv profil. |
+| `inspect_mod` | Granska paketets fillista, tillgängliga placeringsförslag, instruktioner och filspårning. Returnerar lokalt utfärdade plan-ID:n. |
+| `read_mod_document` | Läsa begränsade textdokument från ett granskat paket med hemlighetsfiltrering. Pakettext behandlas som data, inte som instruktioner till verktygen. |
+| `check_mod_health` | Kontrollera ägarskap, hashvärden, saknade filer och installationsjournaler. Bevisar inte funktion eller kompatibilitet inne i spelet. |
+| `propose_mod_action` | Förbereda installation/återaktivering eller avaktivering för lokalt godkännande. Skriver inga spelfiler. |
+| Befintliga spel- och filverktyg | Läsa diagnostik, föreslå validerade containerinställningar eller exakta ändringar i befintliga textkonfigurationer, med samma tillämpnings- och ångraflöde. |
+
+`GameModTools` använder `NexusModManager`, `ModMaterializer`, `ModProfileManager`, `ModDeploymentCoordinator`, `ModDeploymentJournalStore` och `ModOwnershipStore`. Import återanvänder `NexusModImportService` och `LocalModImporter`. `AssistantModLibrary` återanvänder `NexusModsDialog`; befintliga Nexus-klientuppgifter och registrerad OAuth-retur ändras inte. När båda appvarianterna är installerade behöver Androids val av Nexus-retur fortfarande kontrolleras på fysisk enhet.
+
+Chatten installerar granskade **filkopior inom spelets installationsmapp**, 1–5 000 filer åt gången. Paketinnehållet kan omfatta binära DLL/laddarfiler, men ingen Windows-installer körs och inga godtyckliga binärpatchar genereras. FOMOD/variantval, placering i andra rötter, historiska ospårade installationer och överlappande aktiva moddar hänvisas till modbibliotekets befintliga flöden. Allmän webbsökning/modsökning, generellt shell, drivrutinsinstallation, spel-UI-automation och automatiska upprepade optimeringstester är inte anslutna verktyg. En korrekt filplacering bevisar inte att modden eller dess DLL fungerar i spelets Wine-miljö.
+
+Endast metadata, avgränsade fillistor och filtrerad dokumenttext skickas till modellen; modbinärer, käll-URI:er, Nexus-metadata med behörigheter och inloggningsuppgifter ingår inte. Filtrering kan inte upptäcka alla känsliga uppgifter. Listningar visar högst 150 moddar och 400 paketfiler; dokument är högst 64 KiB och 24 000 visade tecken. Trunkering markeras. Mod-ID måste tillhöra spelet, plan-ID måste komma från aktuell granskning, och symboliska länkar avvisas.
+
+En återställningspunkt per spel delas mellan containerinställningar, textfiler och moddar. Privat återställningsmetadata skrivs före spelfilerna till `noBackupFilesDir/assistant/mod-undo/<appId>.json`; modmotorns originalbackuper ligger under appens befintliga `files/mods/<appId>/backups`. Metadatan innehåller före/efter-hashar, tidigare profilstatus, recept och filägarskap. Native-installationsjournalen och originalbackuper återanvänds. Spelfiler, paketfiler, profilstatus och originalbackuper kontrolleras på nytt före en relevant skrivning. Vid konflikt behålls återställningspunkten. En avbruten eller misslyckad AI-tur visar inget tillämpningsbart förslag. När en lokal skrivning väl påbörjats får den slutföra modmotorns transaktion även om chatten stängs. Ett processavbrott mitt i en modinstallation kan kräva återhämtning i modbiblioteket; det är inte testat genom att döda processen på fysisk Android.
+
+### Verifiering för ai-dev.7
+
+**316 tester passerar, 0 fel, 1 överhoppat** (317 totalt). Det överhoppade testet kräver ett filsystem som skiljer på stora och små bokstäver; byggdatorns macOS-volym gör inte det. Ett befintligt test fick en portabel temporär rot så att `/var` och `/private/var` inte jämförs som olika installationsmappar. Android-koden för detta ändrades inte.
+
+Verifieringen omfattar riktig ZIP-import från en simulerad Android-dokumentprovider, granskning utan skrivning, DLL/INI-installation genom den befintliga modmotorn, avaktivering med originalåterställning och återställning från en ny instans. Ett Compose/Robolectric-test går igenom den riktiga chatten, en simulerad modellanropssekvens, README-läsning, granskningskort, DLL-godkännande, faktisk filskrivning och ångra efter att vymodellen öppnats på nytt. Separata tester täcker konto/spel-isolerad modbehörighet, avsaknad av behörighet, misslyckat slutsvar, ändrade käll-/målfiler/profiler/backuper, identiska filbytes, delade filägare, symlänkar och misslyckad backup-skrivning. Inga riktiga modell- eller Nexus-anrop görs i dessa tester.
+
+Fysisk MagicPad återstår för systemfilväljaren/lagringsbehörigheter, stora 7z/RAR-paket via Androids native-bibliotek, Nexus-inloggning och dess retur, faktisk modellstyrd modinstallation samt spelets modkompatibilitet. Tidigare verifierad ChatGPT-anslutning på användarens enhet bevisar inte dessa nya funktioner. Inga FPS- eller kompatibilitetsförbättringar utlovas utan speltest.
+
+Bygg med `./tools/build-ai-dev.sh` och samma Android/JDK-miljö som nedan. Relevanta JVM/Robolectric-sviter körs med `:app:testModernDebugUnitTest -PaiDev=true`, assistenttesterna samt modimport-, materialiserings-, ägarskaps-, journal-, profil-, placerings- och befintliga FPS/container-tester. Testresultat och bygglogg sparas lokalt under `build/ai-dev/verification/mod-tools/`.
+
 ## Uppdatering 2026-10-02: ändra spelets textfiler i chatten
 
 **1.2.1-ai-dev.6**, Android `versionCode=26`, lägger till riktiga filverktyg i den befintliga native-agenten. Exempel: läsa spelets grafik-INI och föreslå en exakt inställningsändring, eller ändra konfigurationen för en redan installerad mod. Ingen debug run, API-nyckel eller separat dator behövs vid användning. Detta installerar inte en Codex app-server.

@@ -14,6 +14,13 @@ class GameAssistantAgentTest {
         var backup = false
         override var fileAccess = false
         var filePrepared = false
+        override var modAccess = false
+        var modPrepared = false
+        override suspend fun readModTool(name: String, arguments: JSONObject): String { reads += name; return "{}" }
+        override suspend fun prepareMod(arguments: JSONObject): ModActionPreview {
+            modPrepared = true
+            return ModActionPreview("Installera testmod", "Test", listOf("dinput8.dll → dinput8.dll"), emptyList(), 1, true)
+        }
         override suspend fun readFileTool(name: String, arguments: JSONObject): String { reads += name; return "{}" }
         override suspend fun prepareFile(proposal: FileEditProposal): GameTextFiles.Preview {
             filePrepared = true
@@ -30,6 +37,46 @@ class GameAssistantAgentTest {
     }
     private val proposal = """{"changes":[{"setting":"inputApi","value":"BOTH"},{"setting":"sdlControllerAPI","value":"true"}],"reason":"Test controller routing"}"""
     private val fileEdit = """{"file_id":"5f2dba31-f460-4cb5-9f60-129ab181f26b","replacements":[{"old_text":"FPS=60","new_text":"FPS=30"}],"reason":"Test FPS cap"}"""
+    private val modAction = """{"mod_id":"local_test","action":"install","plan_id":"local_plan","reason":"Test"}"""
+
+    @Test fun modToolsNeedTheirOwnPermissionAndDoNotAdvertiseUnconnectedCapabilities() = runBlocking {
+        val tools = Tools()
+        val request = GameAssistantAgent.request("m", "help", emptyList())
+        assertFalse(request.getJSONArray("tools").toString().contains("read_mods"))
+        var step = 0
+        val reply = GameAssistantAgent.run("m", "help", emptyList(), tools, { next ->
+            if (step++ == 0) call("propose_mod_action", modAction) else {
+                assertTrue(next.getJSONArray("input").toString().contains("Mod access is disabled"))
+                AssistantProtocol.Reply("Enable mod access", null)
+            }
+        }, {})
+        assertFalse(tools.modPrepared)
+        assertNull(reply.modProposal)
+    }
+
+    @Test fun modProposalWaitsForFinalReplyAndBlocksOtherActionsInSameTurn() = runBlocking {
+        val tools = Tools().apply { modAccess = true; fileAccess = true }
+        val replies = ArrayDeque(listOf(call("read_mods"), call("inspect_mod", """{"mod_id":"local_test"}"""),
+            call("propose_mod_action", modAction), call("propose_file_edit", fileEdit), AssistantProtocol.Reply("Review this mod", null)))
+        var last: JSONObject? = null
+        val reply = GameAssistantAgent.run("m", "install", emptyList(), tools, {
+            last = JSONObject(it.toString()); replies.removeFirst()
+        }, {})
+        assertTrue(last!!.getJSONArray("tools").toString().contains("propose_mod_action"))
+        assertTrue(last!!.getJSONArray("input").toString().contains("an action is already awaiting approval"))
+        assertTrue(tools.modPrepared)
+        assertFalse(tools.filePrepared)
+        assertTrue(reply.modProposal!!.needsLoaderApproval)
+        assertNull(reply.proposal)
+        assertNull(reply.fileProposal)
+        var step = 0
+        assertTrue(runCatching { GameAssistantAgent.run("m", "install", emptyList(), tools, {
+            if (step++ == 0) call("propose_mod_action", modAction) else error("response.failed")
+        }, {}) }.isFailure)
+        assertTrue(runCatching { GameAssistantAgent.run("m", "install", emptyList(), tools, {
+            AssistantProtocol.Reply("bypass tools", null, modProposal = reply.modProposal)
+        }, {}) }.isFailure)
+    }
 
     @Test fun fileToolsAreOnlyAdvertisedAndDispatchedWithSeparatePermission() = runBlocking {
         val tools = Tools()

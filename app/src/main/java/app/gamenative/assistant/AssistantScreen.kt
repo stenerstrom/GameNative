@@ -1,6 +1,8 @@
 package app.gamenative.assistant
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -11,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +29,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.gamenative.BuildConfig
 import app.gamenative.updates.AiDevUpdateActivity
+import app.gamenative.mods.LocalModSourceType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,11 +38,16 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
     val context = LocalContext.current
     val selected = state.accounts.accounts.firstOrNull { it.id == state.accounts.selected }
     var menu by remember { mutableStateOf(false) }
+    var attachments by remember { mutableStateOf(false) }
+    var modLibrary by remember { mutableStateOf(false) }
+    val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { model.importMod(LocalModSourceType.ARCHIVE, listOf(it)) } }
+    val filesPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> if (uris.isNotEmpty()) model.importMod(LocalModSourceType.FILES, uris) }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let { model.importMod(LocalModSourceType.FOLDER, listOf(it)) } }
     var sheet by rememberSaveable { mutableStateOf<String?>(null) }
     var keepConfirmation by remember { mutableStateOf(false) }
     var newChatConfirmation by remember { mutableStateOf(false) }
     val scroll = rememberLazyListState()
-    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.restoreRequested) {
+    LaunchedEffect(state.history.size, state.busy, state.proposal, state.fileProposal, state.modProposal, state.restoreRequested) {
         withFrameNanos { }
         scroll.animateScrollToItem((scroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
     }
@@ -56,6 +65,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Konto och modell") }, onClick = { menu = false; sheet = "account" })
                         DropdownMenuItem(text = { Text("Spelåtkomst och verktyg") }, onClick = { menu = false; sheet = "access" })
+                        DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, enabled = !state.busy, onClick = { menu = false; modLibrary = true })
                         DropdownMenuItem(text = { Text("Ny chatt") }, enabled = !state.busy, onClick = { menu = false; newChatConfirmation = true })
                         DropdownMenuItem(text = { Text("Appuppdateringar") }, enabled = !state.busy, onClick = {
                             menu = false; context.startActivity(Intent(context, AiDevUpdateActivity::class.java))
@@ -70,7 +80,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     Column(Modifier.widthIn(max = 800.dp).fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Vad vill du få ordning på?", style = MaterialTheme.typography.headlineSmall)
                         Text("Beskriv problemet. Jag kan undersöka spelet och förbereda ändringar som du godkänner här.")
-                        listOf("Spelet hackar – hjälp mig nå stabila 30 FPS", "Min handkontroll fungerar inte", "Spelet startar inte").forEach { prompt ->
+                        listOf("Spelet hackar – hjälp mig nå stabila 30 FPS", "Min handkontroll fungerar inte", "Spelet startar inte", "Granska mina moddar").forEach { prompt ->
                             OutlinedButton(onClick = { model.prompt(prompt) }, enabled = !state.busy) { Text(prompt) }
                         }
                     }
@@ -136,6 +146,29 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         }
                     }
                 } }
+                state.modProposal?.let { proposal -> item {
+                    var loaderApproved by remember(proposal) { mutableStateOf(false) }
+                    Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(proposal.title, style = MaterialTheme.typography.titleMedium)
+                            AssistantText(proposal.reason)
+                            Text("${proposal.fileCount} filer · original säkerhetskopieras vid ersättning", style = MaterialTheme.typography.bodySmall)
+                            Text(proposal.files.joinToString("\n"), Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState()),
+                                style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                            proposal.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            if (proposal.needsLoaderApproval) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = loaderApproved, onCheckedChange = { loaderApproved = it }, enabled = !state.busy,
+                                    modifier = Modifier.testTag("mod-loader-approval"))
+                                Text("Jag godkänner paketets DLL/laddarfiler. De kan köras när spelet startar.", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("Stäng spelet först. Ångra ändring finns kvar efter omstart. Spelets kompatibilitet är inte verifierad.", style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { model.applyMod(loaderApproved) }, enabled = !state.busy && !state.backup && (!proposal.needsLoaderApproval || loaderApproved)) { Text("Tillämpa modändring") }
+                                TextButton(onClick = model::dismissProposal, enabled = !state.busy) { Text("Avstå") }
+                            }
+                        }
+                    }
+                } }
                 if (state.backup) item {
                     Card(Modifier.widthIn(max = 800.dp).fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -157,12 +190,23 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     } else {
                         Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { sheet = "access" }, enabled = !state.busy) {
-                                Text(if (state.includeDiagnostics && state.fileAccess) "Spel- och filåtkomst på" else if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
+                                Text(if (state.includeDiagnostics && state.modAccess) "Spel- och modverktyg på" else if (state.includeDiagnostics && state.fileAccess) "Spel- och filåtkomst på" else if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
                             }
                             if (!state.includeDiagnostics) Text("eller chatta utan verktyg", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.padding(bottom = 4.dp)) {
+                            IconButton(onClick = { if (state.includeDiagnostics && state.modAccess) attachments = true else sheet = "access" }, enabled = !state.busy) {
+                                Icon(Icons.Default.Add, "Lägg till mod")
+                            }
+                            DropdownMenu(expanded = attachments, onDismissRequest = { attachments = false }) {
+                                DropdownMenuItem(text = { Text("Modarkiv (ZIP, 7z, RAR)") }, onClick = { attachments = false; archivePicker.launch(arrayOf("*/*")) })
+                                DropdownMenuItem(text = { Text("Modfiler (DLL och andra filer)") }, onClick = { attachments = false; filesPicker.launch(arrayOf("*/*")) })
+                                DropdownMenuItem(text = { Text("Modmapp") }, onClick = { attachments = false; folderPicker.launch(null) })
+                                DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, onClick = { attachments = false; modLibrary = true })
+                            }
+                        }
                         OutlinedTextField(value = state.prompt, onValueChange = model::prompt, enabled = !state.busy,
                             modifier = Modifier.weight(1f), placeholder = { Text("Skriv ett meddelande…") }, maxLines = 4,
                             shape = MaterialTheme.shapes.large)
@@ -214,14 +258,22 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         modifier = Modifier.testTag("file-access"))
                 }
                 Text("Läser och föreslår ändringar i befintliga INI-, CFG-, CONF-, JSON-, XML-, TOML- och PROPERTIES-filer i spelets mapp och privata Wine-användarmappar. Filinnehåll filtreras och skickas till OpenAI. Varje ändring visas med diff och kräver Tillämpa; originalfilen kan återställas.", style = MaterialTheme.typography.bodySmall)
-                Text("Högst 128 KiB/48 000 tecken per fil. Modpaket, DLL/EXE, skript, sparfiler och länkade mappar ingår inte. Drivrutinsinstallation, Bluetooth-parning och styrning av PC-spelets menyer saknar fortfarande verktyg.", style = MaterialTheme.typography.bodySmall)
+                Text("Textredigering: högst 128 KiB/48 000 tecken per fil. Modpaket och DLL:er hanteras via modverktygen nedan. Godtycklig körning av skript/EXE ingår inte.", style = MaterialTheme.typography.bodySmall)
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tillåt modhantering", Modifier.weight(1f))
+                    Switch(checked = state.modAccess, onCheckedChange = model::allowMods, enabled = !state.busy && state.includeDiagnostics,
+                        modifier = Modifier.testTag("mod-access"))
+                }
+                Text("Läser modbiblioteket, paketens filnamn och valda instruktioner till OpenAI. Agenten kan föreslå installation, återaktivering och inaktivering med filgranskning och ångra. Lägg till arkiv, filer eller mappar med + vid skrivfältet. Nexus, FOMOD och gemensam laddordning finns under ⋮ → Modbibliotek och Nexus.", style = MaterialTheme.typography.bodySmall)
                 Text("De senaste åtta utbytena sparas krypterat per spel och konto på denna enhet. Ny chatt rensar dem. Råloggar och väntande ändringar sparas inte i chatthistoriken, men svar kan innehålla uppgifter från tidigare diagnostik.", style = MaterialTheme.typography.bodySmall)
             }
             Button(onClick = { sheet = null }, modifier = Modifier.fillMaxWidth()) { Text("Klart") }
         }
     }
+    if (modLibrary) AssistantModLibrary(state.game, state.gameTitle) { modLibrary = false; model.modLibraryClosed() }
     if (keepConfirmation) AlertDialog(onDismissRequest = { keepConfirmation = false }, title = { Text("Behåll ändringarna?") },
-        text = { Text("Den senaste säkerhetskopian tas bort. Därefter kan assistenten förbereda ett nytt försök med en ny säkerhetskopia.") },
+        text = { Text("Den senaste återställningspunkten tas bort. Därefter kan assistenten förbereda ett nytt försök med en ny säkerhetskopia.") },
         confirmButton = { TextButton(onClick = { keepConfirmation = false; model.keepChanges() }) { Text("Behåll") } },
         dismissButton = { TextButton(onClick = { keepConfirmation = false }) { Text("Avbryt") } })
     if (newChatConfirmation) AlertDialog(onDismissRequest = { newChatConfirmation = false }, title = { Text("Starta ny chatt?") },

@@ -25,7 +25,8 @@ class ModMaterializerTest {
 
     @Before
     fun setUp() {
-        tempDir = createTempDirectory("nexus_materializer_test").toFile()
+        // Match the materializer's canonical roots, including macOS /var -> /private/var.
+        tempDir = createTempDirectory("nexus_materializer_test").toFile().canonicalFile
         extracted = File(tempDir, "extracted").apply { mkdirs() }
         gameDir = File(tempDir, "game").apply { mkdirs() }
         backupDir = File(tempDir, "backups").apply { mkdirs() }
@@ -493,7 +494,8 @@ class ModMaterializerTest {
             directory = false,
         )
 
-        assertTrue(ModMaterializer.filterUnapprovedConflicts(listOf(conflict), result.manifests).isEmpty())
+        assertTrue("conflict=${conflict.targetPath}, manifests=${result.manifests.map { it.targetPath }}, errors=${result.errors}",
+            ModMaterializer.filterUnapprovedConflicts(listOf(conflict), result.manifests).isEmpty())
 
         ModMaterializer.restoreBackups(result.manifests)
 

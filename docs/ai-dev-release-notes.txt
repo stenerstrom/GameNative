@@ -1,12 +1,12 @@
-GameNative AI Dev 1.2.1-ai-dev.6 – ändra spelets textfiler från chatten
+GameNative AI Dev 1.2.1-ai-dev.7 – modhantering i chatten
 
-• Nytt val under Spelåtkomst: Tillåt spelfiler. Filåtkomst är avstängd från början och sparas per spel/konto.
-• Assistenten kan hitta och läsa befintliga INI-, CFG-, CONF-, JSON-, XML-, TOML- och PROPERTIES-filer i spelets mapp och privata Wine-användarmappar. Ingen debug run behövs.
-• Skriv exempelvis: ”Läs spelets grafikinställningar och föreslå en ändring till 30 FPS om spelet stöder det.” Agenten kan även föreslå textändringar i en redan installerad mods konfiguration.
-• Ett kort visar filnamn, skäl och exakt textdiff. Tillämpa filändring säkerhetskopierar originalet först. Ångra ändring fungerar även efter appomstart. Behåll avslutar försöket inför nästa ändring.
-• Ändrade filer och konflikter avvisas. Windows-radbrytningar, UTF-8 och BOM-märkt UTF-16 bevaras. Hemligheter filtreras före AI-anrop; filtrerade rader/block kan inte ändras.
-• Samma ChatGPT-abonnemangsanslutning och samma enkla chatt som i ai-dev.5. Ingen separat API-debitering eller dator behövs vid användning.
+• Lägg till en mod via + vid meddelandefältet: ZIP/7z/RAR, lösa filer som DLL eller en mapp från Androids filväljare. Importen placerar paketet i modbiblioteket; installation i spelet är ett separat steg.
+• Slå på Tillåt modhantering under Spelåtkomst. Assistenten kan läsa dina moddar, granska filer och README, kontrollera installationer och föreslå installation, återaktivering eller avaktivering.
+• Ett granskningskort visar filplacering och ersättningar. Tillämpa modändring använder GameNatives befintliga säkerhetskopior, filspårning och installationsjournal. DLL/laddarfiler har ett särskilt godkännande i kortet.
+• Ångra ändring fungerar även efter appomstart. Vid avaktivering återställs originalfiler och paketet behålls. Ändrade filer, profilinställningar eller säkerhetskopior stoppar en konfliktfylld åtgärd.
+• Modbibliotek och Nexus finns under + och ⋮. Här finns GameNatives befintliga Nexus-inloggning/nedladdning, FOMOD-val och modprofiler. Chatten väljer inte automatiskt avancerade installationsalternativ eller laddordning för överlappande moddar.
+• Befintliga inställnings- och textfilverktyg finns kvar. Ingen debug run, separat dator eller API-debitering behövs vid användning. ChatGPT-abonnemanget och Nexus-behörigheten är separata.
 
-Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata. Samma paket/signeringsnyckel, högre versionskod 26. Stäng spelet före installation och filändringar.
+Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå GameNative AI Dev. Avinstallera inte och rensa inte appdata. Samma paket och signerare, högre versionskod 27. Stäng spelet före uppdatering och modändringar.
 
-Första filversionen ändrar en befintlig textfil åt gången, högst 128 KiB/48 000 tecken och 1–4 textbyten. DLL/EXE, modarkiv, skript, sparfiler, nya/raderade filer och länkade mappar ingår inte. Ändringarna måste fortfarande stödjas av spelet; inga FPS-förbättringar utlovas. Lokala tester verifierar verktyg, chattkort, tillämpning och återställning. Riktiga modellval, Androids lagringsbehörigheter och spelets beteende behöver provas på MagicPad.
+Chattinstallationen stöder granskade filkopior i det valda spelets installationsmapp, högst 5 000 filer. En återställningspunkt per spel delas mellan inställningar, textfiler och moddar. Detta är en native-agent med appverktyg, inte hela Codex datormiljö: generell terminal, Windows-installationsprogram och godtycklig binärpatchning ingår inte. Lokala tester kontrollerar ZIP-import, chattkort, installation, avaktivering, återställning och konflikter. Androids filväljare, Nexus-inloggning och moddens funktion i spelet måste fortfarande provas på MagicPad.

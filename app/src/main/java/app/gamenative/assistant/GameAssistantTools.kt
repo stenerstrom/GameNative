@@ -25,10 +25,39 @@ class GameAssistantTools(private val context: Context, private val appId: String
         private set
     private var inspectedHash: String? = null
     override var fileAccess: Boolean = false
+    override var modAccess: Boolean = false
+    private val mods = GameModTools(context, appId, gameTitle)
     private val textFiles = GameTextFiles({ GameFileRoots.discover(context, appId) },
         File(context.noBackupFilesDir, "assistant/file-undo/$appId.json"))
 
-    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn() }
+    fun beginTurn() { inspectedHash = null; preparedHash = null; preparedChanges = emptyList(); textFiles.beginTurn(); mods.beginTurn() }
+    override suspend fun readModTool(name: String, arguments: JSONObject): String {
+        check(modAccess) { "Mod access is disabled" }
+        val keys = when (name) {
+            "read_mods", "check_mod_health" -> emptySet()
+            "inspect_mod" -> setOf("mod_id")
+            "read_mod_document" -> setOf("mod_id", "path")
+            else -> error("Unsupported mod tool")
+        }
+        require(arguments.keys().asSequence().toSet() == keys && keys.all { arguments.get(it) is String })
+        return when (name) {
+            "read_mods" -> mods.inventory()
+            "check_mod_health" -> mods.health()
+            "inspect_mod" -> mods.inspect(arguments.getString("mod_id"))
+            else -> mods.document(arguments.getString("mod_id"), arguments.getString("path"))
+        }
+    }
+    override suspend fun prepareMod(arguments: JSONObject): ModActionPreview {
+        check(modAccess && !hasBackup()) { "Enable mod access and restore/keep the previous change first" }
+        return mods.prepare(arguments)
+    }
+    suspend fun applyMod(loaderApproved: Boolean) {
+        check(modAccess) { "Mod access is disabled" }
+        mods.apply(loaderApproved) { check(!backupFile.isFile && !textFiles.hasBackup()) { "Restore/keep the previous settings/file change first" } }
+    }
+    fun hasModBackup() = mods.hasBackup()
+    suspend fun restoreAll() { checkSingleBackup(); if (hasModBackup()) mods.restore() else restore() }
+    suspend fun keepAll() { checkSingleBackup(); if (hasModBackup()) mods.keep() else keepChanges() }
     override suspend fun readFileTool(name: String, arguments: JSONObject): String = withContext(Dispatchers.IO) {
         check(fileAccess) { "File access is disabled" }
         val key = when (name) { "list_game_files" -> "query"; "read_game_file" -> "file_id"; else -> error("Unsupported file tool") }
@@ -126,7 +155,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
     }
 
     private val backupFile: File get() = File(context.noBackupFilesDir, "assistant/undo/$appId.json")
-    override fun hasBackup(): Boolean = backupFile.isFile || textFiles.hasBackup()
+    override fun hasBackup(): Boolean = backupFile.isFile || textFiles.hasBackup() || mods.hasBackup()
     fun hasFileBackup(): Boolean = textFiles.hasBackup()
     fun keepChanges() = synchronized(changeLock) {
         checkStopped(); checkSingleBackup()
@@ -150,7 +179,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         if (hasFileBackup()) textFiles.restore() else transaction().restore()
     }
     private fun checkSingleBackup() {
-        check(!(backupFile.isFile && textFiles.hasBackup())) { "Conflicting undo records; both backups are retained" }
+        check(listOf(backupFile.isFile, textFiles.hasBackup(), mods.hasBackup()).count { it } <= 1) { "Conflicting undo records; backups are retained" }
     }
     private fun checkStopped() {
         check(!SteamService.keepAlive) { "Stop the game/container before changing or restoring settings/files" }

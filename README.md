@@ -73,7 +73,7 @@ Want to help out? Message us to get into the **#development** channel on [Discor
 
 ### MagicPad AI development prototype
 
-This fork includes an opt-in Android ChatGPT assistant with ordinary chat, follow-up questions and optional game diagnostics. No debug run is required to chat. See [build, install, authentication and test instructions](docs/MAGICPAD_AI_PROTOTYPE.md) for the separate **GameNative AI Dev** app (`app.gamenative.aidev`), verified device results and remaining checks.
+This fork includes an opt-in Android ChatGPT assistant with ordinary chat, game diagnostics, reviewed settings/text-file changes and mod installation/disable/undo through GameNative's existing mod manager. Add local mod packages from the chat or open the native Nexus/profile manager from its menu. No debug run is required to chat. See [build, install, authentication and test instructions](docs/MAGICPAD_AI_PROTOTYPE.md) for the separate **GameNative AI Dev** app (`app.gamenative.aidev`), supported tools, verified results and remaining device checks.
 
 ### Building
 

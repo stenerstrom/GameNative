@@ -15,6 +15,7 @@ object GameAssistantAgent {
     val CARE_WRITES = setOf("propose_game_profile", "propose_control_profile", "propose_controller_binding")
     val TOOL_NAMES = setOf("read_capabilities", "read_configuration", "read_optimization_context", "read_game_log", "read_performance", "read_live_session", "read_input_route", "read_controller_trace", "inspect_controllers", "propose_settings", "request_restore") + FILE_TOOLS + MOD_TOOLS + OFFLINE_TOOLS + CARE_READS + CARE_WRITES + REPORT_TOOLS
     interface Tools {
+        val webAccess: Boolean get() = false
         val debugReport: JSONObject? get() = null
         suspend fun searchReport(arguments: JSONObject): String = error("No report selected")
         val careAccess: Boolean get() = false
@@ -33,7 +34,7 @@ object GameAssistantAgent {
         suspend fun inspectOffline(): String = error("Offline installation is unavailable")
         suspend fun prepareOffline(arguments: JSONObject): OfflineGamePreview = error("Offline installation is unavailable")
     }
-    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false, offlineAccess: Boolean = false, careAccess: Boolean = false, debugReport: JSONObject? = null): JSONObject =
+    fun request(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, fileAccess: Boolean = false, modAccess: Boolean = false, offlineAccess: Boolean = false, careAccess: Boolean = false, debugReport: JSONObject? = null, webAccess: Boolean = false): JSONObject =
         AssistantProtocol.request(model, prompt, null, history).apply {
             put("instructions", """
                 You are GameNative's game assistant on Android, using the user's ChatGPT plan. Reply in the user's language.
@@ -244,11 +245,12 @@ object GameAssistantAgent {
             put("tools", JSONArray().put(JSONObject().put("type", "namespace").put("name", "game")
                 .put("description", "Inspect and repair the selected GameNative game").put("tools", functions)))
             put("parallel_tool_calls", false)
+            AssistantWeb.configure(this, webAccess)
         }
 
     suspend fun run(model: String, prompt: String, history: List<AssistantProtocol.ChatTurn>, tools: Tools,
         respond: suspend (JSONObject) -> AssistantProtocol.Reply, progress: (String) -> Unit): AssistantProtocol.Reply {
-        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess, tools.offlineAccess, tools.careAccess, tools.debugReport)
+        val request = request(model, prompt, history, tools.fileAccess, tools.modAccess, tools.offlineAccess, tools.careAccess, tools.debugReport, tools.webAccess)
         tools.screenshot?.attach(request)
         val input = request.getJSONArray("input")
         var readConfiguration = false
@@ -314,7 +316,9 @@ object GameAssistantAgent {
                             .put("gameCare", if (tools.careAccess) GameCareAgent.instructions else "Unavailable")
                             .put("offlineInstallation", tools.offlineAccess)
                             .put("offlineFeatures", "Import a folder via Bibliotek > + > Installera offlinespel med Codex; inspect_offline_installation then propose_offline_action. Local review can run an EXE installer or save the installed game's EXE. Windows wizard is manual; no arbitrary args/downloads. Launch-selection undo only.")
-                            .put("notConnected", "General shell, automatic Windows installer UI, driver/runtime installation, game UI automation, arbitrary web browsing, Bluetooth pairing, global player-slot writes")
+                            .put("webAccess", tools.webAccess)
+                            .put("webFeatures", "Hosted public web search and page reading via the ChatGPT connection when Webb is on, subject to model/account policy. Cite sources. Separate from game permissions; no debug run needed.")
+                            .put("notConnected", "General shell, automatic Windows installer UI, driver/runtime installation, game UI automation, authenticated browser sessions, automatic web downloads, Bluetooth pairing, global player-slot writes")
                             .put("undoAvailable", tools.hasBackup()).toString()
                     }
                     "read_mods", "inspect_mod", "read_mod_document", "check_mod_health" -> tools.readModTool(call.name, call.arguments)

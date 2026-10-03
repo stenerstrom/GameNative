@@ -2,7 +2,42 @@
 
 Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da90ca8cc3cf8b29e21f9`.
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
-Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
+Kontrollerad dokumentation: 2026-10-03. Ingen `AGENTS.md` fanns i denna upstream-version.
+
+## Uppdatering 2026-10-03: webbsökning i chatten
+
+**1.2.1-ai-dev.17**, Android `versionCode=37`, kopplar in OpenAI:s officiella webbverktyg. Tidigare hade agenten endast lokala spelverktyg: internetbehörighet och ett fungerande modellanrop gav inte automatiskt modellen webbsökning.
+
+Uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.17-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-37/GameNative-AI-Dev-1.2.1-ai-dev.17.apk) över AI Dev. Paket och signeringsnyckel är samma som tidigare; **avinstallera inte och rensa inte data**.
+
+### Användning
+
+- **Webb på** vid skrivfältet gör webbsökning tillgänglig i vanlig chatt, i spelet och vid analys av en vald felsökningsrapport. Ingen debug run, spelåtkomst eller filbehörighet behövs för att bara söka på nätet.
+- Skriv exempelvis “Sök efter aktuella lösningar för Dark Souls Prepare to Die Editions kontrollproblem och länka originalkällorna”, eller klistra in en offentlig dokumentationsadress och be Codex läsa den. Agenten kan kombinera sökningen med aktuell speldata när du har aktiverat spelåtkomst.
+- **Söker på webben…** visas när OpenAI skickar en sökhändelse. Källorna är understrukna, klickbara länkar intill svaret och följer den sparade chatten. En aktiverad Webb-knapp betyder att verktyget erbjuds, inte att varje meddelande har utlöst en sökning.
+- Tryck **Webb på / Webb av** för att ändra läget. Valet sparas separat per spel och ChatGPT-anslutning och ändrar inga spelbehörigheter. **⋮ → Webbsökning** beskriver funktionen. Nya och äldre konversationer som saknar ett sparat val har Webb på.
+
+### Integration och gränser
+
+Samma OAuth-token och `POST https://api.openai.com/v1/responses` används med `store:false`, `stream:true` och `tools:[{"type":"web_search","external_web_access":true}]`, tillsammans med befintliga spelverktyg där de är tillåtna. Ingen ny betaltjänst, API-nyckel, Codex app-server eller separat dator tillkommer. Modellen väljs fortsatt från kontots katalog.
+
+[OpenAI:s token-sharing-begränsningar](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) anger att webbsökning styrs av modell och konto-/arbetsplatspolicy. [Webbverktygets dokumentation](https://developers.openai.com/api/docs/guides/tools-web-search) beskriver sökning, sidläsning för stödda modeller och `url_citation`. Appen hanterar källor både i avslutade svar och separata strömningshändelser. Den skickar inte sökfrågor till en egen söktjänst och kopierar inte OAuth-token till webbplatser.
+
+Ett avslag från OpenAI som pekar på webbverktyget visar en förklaring och behåller felkod, parameter och tillgängligt request-ID. Välj en annan modell i kontots lista eller slå av Webb och skicka igen. Appen byter inte konto eller debiteringssätt och återförsöker inte automatiskt. Kvot- och inloggningsfel ska inte beskrivas som ett bevis på saknad webbbehörighet. Avbrutna eller misslyckade svar godkänner inga förslag.
+
+Webbverktyget läser offentliga källor. Inloggade webbläsarsessioner, automatisk filnedladdning och installation från en länk ingår inte. Befintlig Nexus-/modhantering används fortsatt för sådana granskade paket. Webbsidor är opålitligt underlag; de får inte ge agenten instruktioner eller godkänna ändringar. Aktuell konfiguration måste fortfarande läsas före ett ändringsförslag, och Tillämpa/Ångra används som tidigare.
+
+Agenten instrueras att söka med minimala offentliga uppgifter, exempelvis spel, version och generell feltext, aldrig med råloggar, kontouppgifter eller privata sökvägar. Detta är en modellinstruktion, inte en fullständig garanti för sökfrågornas innehåll. Frågor och svar bevarar normala offentliga webbadresser; URL:er med inloggningsuppgifter och identifierade hemliga parametrar filtreras. Den tidigare filtreringen av råa spelbilagor behålls. Bilder granskas fortfarande separat av användaren.
+
+### Verifiering och test på MagicPad
+
+Automatiska tester täcker webb utan spelåtkomst, webb tillsammans med agentens spelverktyg, avstängt läge, konto-/spelisolerat val, källor i slutligt och strömmat svar, fel/avbrott, hemlighetsfiltrering och bevarade offentliga URL:er. UI-flödet körs i 360 × 800 och 1280 × 800: skicka, visa sökstatus, tryck på en riktig källänk via renderad text, stäng av Webb och skicka igen. Bilderna granskas visuellt. Molnsvaret är simulerat i dessa tester; verklig behörighet för användarens konto är inte verifierad här.
+
+Slutresultat och APK-verifiering sparas lokalt under `build/ai-dev/verification/web-access/`. Ingen kontroll-, JNI-, SDL- eller native-bryggkod ändras. Bygg- och installationskommandon längre ned gäller även denna version.
+
+**354 tester godkända, inga fel eller överhoppade tester.** `assembleModernDebug -PaiDev=true` lyckades. Sviten omfattar assistenten, `com.winlator.inputcontrols.*`, `PhysicalControllerHandlerTest`, `FpsLimiterUtilsTest` och `ContainerConfigDialogContainerUpdateTest`; övriga upstream-tester ingår inte. Ingen fysisk Android-enhet var ansluten.
+
+På MagicPad: uppdatera över befintlig app, öppna samma chatt och kontrollera **Webb på**. Ställ exempelfrågan ovan, kontrollera sökstatus och öppna en källänk. Prova sedan Webb av och en vanlig fråga, samt en sökning med spelet igång. Om kontot/modellen nekar webbsökning, skicka feltexten utan inloggningsuppgifter. Ingen verklig webbsökning genom MagicPads konto har körts i utvecklingsmiljön.
 
 ## Uppdatering 2026-10-03: felsökningsrapporter till Codex
 

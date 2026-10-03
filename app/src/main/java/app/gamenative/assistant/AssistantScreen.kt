@@ -24,12 +24,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import app.gamenative.BuildConfig
 import app.gamenative.updates.AiDevUpdateActivity
@@ -71,6 +77,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Konto och modell") }, onClick = { menu = false; sheet = "account" })
                         DropdownMenuItem(text = { Text("Spelåtkomst och verktyg") }, onClick = { menu = false; sheet = "access" })
+                        DropdownMenuItem(text = { Text("Webbsökning") }, onClick = { menu = false; sheet = "web" })
                         DropdownMenuItem(text = { Text("Modbibliotek och Nexus") }, enabled = !state.busy && !inGame, onClick = { menu = false; modLibrary = true })
                         DropdownMenuItem(text = { Text("Installera offlinespel med Codex") }, enabled = !state.busy && !inGame, onClick = {
                             menu = false; context.startActivity(Intent(context, OfflineGameImportActivity::class.java))
@@ -111,7 +118,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                             }
                         }
                     }
-                    item { Column(Modifier.widthIn(max = 800.dp).fillMaxWidth()) { AssistantText(turn.displayText) } }
+                    item { Column(Modifier.widthIn(max = 800.dp).fillMaxWidth()) { AssistantText(turn.displayText, openBrowser) } }
                 }
                 if (state.busy) item {
                     Column(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -219,11 +226,13 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                         Button(onClick = { model.connect(false, openBrowser) }, enabled = !state.busy) { Text("Continue with ChatGPT") }
                         Text("Använder ditt ChatGPT-abonnemang.", style = MaterialTheme.typography.bodySmall)
                     } else {
-                        Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.widthIn(max = 800.dp).fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { sheet = "access" }, enabled = !state.busy) {
                                 Text(if (state.includeDiagnostics && state.modAccess) "Spel- och modverktyg på" else if (state.includeDiagnostics && state.fileAccess) "Spel- och filåtkomst på" else if (state.includeDiagnostics) "Spelåtkomst på" else "Ge spelåtkomst")
                             }
-                            if (!state.includeDiagnostics) Text("eller chatta utan verktyg", style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { model.allowWeb(!state.webAccess) }, enabled = !state.busy, modifier = Modifier.testTag("web-toggle")) {
+                                Text(if (state.webAccess) "Webb på" else "Webb av")
+                            }
                         }
                     }
                     state.screenshot?.let { shot ->
@@ -289,6 +298,16 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
                 TextButton(onClick = { openBrowser(ChatGptProvider.USAGE_URL) }) { Text("Hantera användning och appåtkomst") }
                 if (selected?.connected == true) TextButton(onClick = model::disconnect, enabled = !state.busy) { Text("Logga ut") }
                 Text("Om inloggningsfliken ligger kvar efter godkännande: använd Androids Tillbaka och kontrollera anslutningen här.", style = MaterialTheme.typography.bodySmall)
+            } else if (sheet == "web") {
+                Text("Webbsökning", style = MaterialTheme.typography.titleLarge)
+                Text("Codex kan söka efter aktuella spelfixar, moddar och dokumentation samt läsa offentliga webbsidor. Källorna går att öppna direkt i svaret.")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Tillåt webbsökning", Modifier.weight(1f))
+                    Switch(checked = state.webAccess, onCheckedChange = model::allowWeb, enabled = !state.busy,
+                        modifier = Modifier.testTag("web-access"))
+                }
+                Text("Använder samma ChatGPT-anslutning, utan separat API-nyckel. Tillgänglighet styrs av modell och konto. Webb behöver varken spelåtkomst eller debugläge.")
+                Text("Sökfrågor hanteras av OpenAI:s webbverktyg. Undvik privata uppgifter i det du ber Codex söka efter. Sidor ger underlag; de installerar ingenting och får inte godkänna ändringar åt dig.", style = MaterialTheme.typography.bodySmall)
             } else {
                 Text("Spelåtkomst", style = MaterialTheme.typography.titleLarge)
                 Text("Låt assistenten själv läsa detta spels inställningar, tillgängliga logg och prestandadata (även från pågående spelomgång) samt upptäckta handkontroller när den behöver dem. Informationen filtreras och skickas till OpenAI med din fråga.")
@@ -332,15 +351,24 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
 }
 
 @Composable
-internal fun AssistantText(text: String) {
+internal fun AssistantText(text: String, openBrowser: ((String) -> Unit)? = null) {
     // Safe inline formatting: no HTML/WebView and no automatic execution or opening model links.
-    val formatted = remember(text) { buildAnnotatedString {
-        val pattern = Regex("\\*\\*(.+?)\\*\\*|`([^`]+)`")
+    val uriHandler = LocalUriHandler.current
+    val linkColor = MaterialTheme.colorScheme.primary
+    val formatted = remember(text, openBrowser, uriHandler, linkColor) { buildAnnotatedString {
+        val pattern = Regex("\\[([^\\]\\n]{1,200})\\]\\((https?://[^\\s)]{1,4096})\\)|\\*\\*(.+?)\\*\\*|`([^`]+)`")
         var cursor = 0
         pattern.findAll(text).forEach { match ->
             append(text.substring(cursor, match.range.first))
-            if (match.groups[1] != null) withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groupValues[1]) }
-            else withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(match.groupValues[2]) }
+            if (match.groups[1] != null) {
+                val url = AssistantWeb.safeUrl(match.groupValues[2])
+                if (url == null) append(match.value) else withLink(LinkAnnotation.Url(url,
+                    styles = TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)),
+                    linkInteractionListener = LinkInteractionListener { (openBrowser ?: { link -> uriHandler.openUri(link) })(url) })) {
+                    append(match.groupValues[1])
+                }
+            } else if (match.groups[3] != null) withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(match.groupValues[3]) }
+            else withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(match.groupValues[4]) }
             cursor = match.range.last + 1
         }
         append(text.substring(cursor))

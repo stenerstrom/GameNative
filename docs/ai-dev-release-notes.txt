@@ -1,13 +1,14 @@
-GameNative AI Dev 1.2.1-ai-dev.16 – felsökningsrapporter till Codex
+GameNative AI Dev 1.2.1-ai-dev.17 – webbsökning i Codex-chatten
 
-• Felsök med Codex ersätter Discord-flödet för debugrapporter i AI Dev. Välj Krasch/startfel, Hack/FPS, Kontroll eller Annat. Samma funktion finns under Felsök i chatten och medan du spelar.
-• Markera fel i den lilla spelpanelen. Varje rapport hör till en bestämd körning och behåller filtrerade inställningar, processlogg, mätningar och tillgänglig kontrollobservation. Inga kontrollinställningar ändras av insamlingen.
-• Analysera med Codex använder befintlig ChatGPT-anslutning och en fryst kopia av vald rapport. Granska underlaget, sök fel och fortsätt i samma chatt. Ändringar kräver fortfarande Tillämpa och har befintlig Ångra.
-• Lokala rapporter bevaras vid nätverksfel och kan återfinnas efter appavbrott. Ett utkast sparas före spelstart. Saknad Wine-logg blockerar inte en rapport. Ingen automatisk AI-överföring eller automatisk återförsökning.
-• Rapportkopplingen följer chatten för valt spel och konto. Äldre lokala debugrapporter kan importeras uttryckligen. Jämförande FPS-tester hålls isär från felsökningsinsamling.
+• Webb på vid skrivfältet ger Codex tillgång till OpenAI:s officiella webbsökning och läsning av offentliga sidor. Fungerar i vanlig chatt och i spelet, utan krav på debug run eller spelåtkomst.
+• Fråga efter aktuella spelfixar, moddar eller dokumentation, eller klistra in en offentlig länk. När spelåtkomst är på kan agenten jämföra källorna med spelets faktiska inställningar och föreslå granskade ändringar.
+• Sökhändelser visas i chatten. Svarens källor blir klickbara och sparas med konversationen. Offentliga webbadresser förstörs inte längre av loggfiltreringen.
+• Webb på/av sparas per spel och konto. Spelbehörigheter är separata. Ett OpenAI-fel om webbverktyget förklaras utan automatiskt återförsök eller byte av debitering.
 
-Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket/signering, versionskod 36. Avinstallera inte och rensa inte data. Ingen separat API-debitering eller extern dator behövs.
+Samma ChatGPT-anslutning; ingen separat API-nyckel eller API-debitering. Webbstödet styrs av vald modell och konto. Inloggade webbsidor och automatisk nedladdning/installation ingår inte; befintlig modhantering och Tillämpa/Ångra används fortsatt.
 
-Underlaget är begränsat; loggstormar och sista osparade delen före processdöd kan saknas. Extra Wine-loggning kräver ny spelstart. Fysisk input, spelkrascher, molnsvar och prestandapåverkan behöver provas på MagicPad. Se docs/MAGICPAD_AI_PROTOTYPE.md för teststeg och begränsningar.
+Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket/signering, versionskod 37. Avinstallera inte och rensa inte data.
 
-341 relevanta tester godkända, inga fel eller överhoppade tester. APK-bygget lyckades och rapportvyn är granskad i stående och liggande läge.
+Automatiska webb-, chatt- och UI-tester använder simulerade molnsvar. Källänkar och Webb-reglaget provas i stående och liggande läge. Verklig webbsökning med ditt konto behöver provas på MagicPad; se docs/MAGICPAD_AI_PROTOTYPE.md.
+
+354 relevanta tester godkända, inga fel eller överhoppade tester. APK-bygget lyckades.

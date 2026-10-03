@@ -32,6 +32,9 @@ interface GameAiProvider {
     suspend fun signOut(): Boolean
     suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>): AssistantProtocol.Reply
     suspend fun agentTurn(request: JSONObject): AssistantProtocol.Reply
+    suspend fun agentTurn(request: JSONObject, progress: (String) -> Unit): AssistantProtocol.Reply = agentTurn(request)
+    suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>,
+        webAccess: Boolean, progress: (String) -> Unit): AssistantProtocol.Reply = chat(model, prompt, diagnostics, history)
 }
 
 /** Official public OAuth + Responses route. There is deliberately no API-key billing fallback. */
@@ -170,7 +173,16 @@ class ChatGptProvider(context: Context) : GameAiProvider {
         return profile.getString("access_token")
     }
 
-    private suspend fun stream(body: JSONObject): AssistantProtocol.Reply {
+    override suspend fun agentTurn(request: JSONObject, progress: (String) -> Unit): AssistantProtocol.Reply = io { stream(request, progress) }
+
+    override suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>,
+        webAccess: Boolean, progress: (String) -> Unit): AssistantProtocol.Reply = io {
+        stream(AssistantProtocol.request(model, prompt, diagnostics, history, webAccess), progress).also {
+            check(diagnostics != null || it.proposal == null) { "Unexpected proposal without game access" }
+        }
+    }
+
+    private suspend fun stream(body: JSONObject, progress: (String) -> Unit = {}): AssistantProtocol.Reply {
         val request = Request.Builder().url("$RESOURCE/responses").header("Authorization", "Bearer ${accessToken()}")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         return suspendCancellableCoroutine { continuation ->
@@ -185,8 +197,12 @@ class ChatGptProvider(context: Context) : GameAiProvider {
                         response.use {
                             if (!it.isSuccessful) throw error(it.code, it.body?.string().orEmpty(), it.header("x-request-id"))
                             val source = it.body?.source() ?: error("Empty response")
-                            ResponsesStream.read(source, it.header("x-request-id")) { json -> error(it.code, json.toString(), it.header("x-request-id")) }
+                            ResponsesStream.read(source, it.header("x-request-id"), progress = { message ->
+                                if (continuation.isActive) progress(message)
+                            }) { json -> error(it.code, json.toString(), it.header("x-request-id")) }
                         }
+                    }.recoverCatching { failure ->
+                        throw if (failure is ProviderError) AssistantWeb.explainFailure(failure, body) else failure
                     }
                     if (continuation.isActive) continuation.resumeWith(result)
                 }
@@ -225,10 +241,10 @@ class ChatGptProvider(context: Context) : GameAiProvider {
             ?: (json?.opt("error") as? String).orEmpty()
         val message = detail?.optString("message")?.takeIf { it.isNotBlank() }
             ?: json?.optString("detail")?.takeIf { it.isNotBlank() } ?: "Request failed or response was incomplete"
-        return ProviderError(code, DiagnosticRedactor.text("OpenAI HTTP $status; $code; $message; parameter=${detail?.optString("param").orEmpty()}; request=${requestId.orEmpty()}").take(1000))
+        return ProviderError(code, DiagnosticRedactor.text("OpenAI HTTP $status; $code; $message; parameter=${detail?.optString("param").orEmpty()}; request=${requestId.orEmpty()}").take(1000), detail?.optString("param").orEmpty())
     }
 
-    class ProviderError(val code: String, message: String) : IllegalStateException(message)
+    class ProviderError(val code: String, message: String, val parameter: String = "") : IllegalStateException(message)
     companion object {
         const val USAGE_URL = "https://chatgpt.com/settings/usage"
         private const val ISSUER = "https://auth.openai.com"

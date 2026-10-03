@@ -69,6 +69,7 @@ data class AssistantUiState(
     val prompt: String = "",
     val diagnostics: String = "",
     val includeDiagnostics: Boolean = false,
+    val webAccess: Boolean = true,
     val fileAccess: Boolean = false,
     val modAccess: Boolean = false,
     val configurationReady: Boolean = false,
@@ -218,6 +219,10 @@ class GameAssistantViewModel @JvmOverloads constructor(
             status = if (include) "Assistenten kan nu undersöka spelet när du skickar en fråga." else "Spelåtkomst avstängd. Du kan fortfarande chatta.") }
         saveConversation()
     }
+    fun allowWeb(allow: Boolean) = action("Uppdaterar webbsökning…") {
+        mutable.update { it.copy(webAccess = allow, status = "") }
+        saveConversation()
+    }
     fun allowFiles(allow: Boolean) = action("Uppdaterar filåtkomst…") {
         check(!allow || state.value.includeDiagnostics) { "Aktivera spelverktyg först" }
         mutable.update { it.copy(fileAccess = allow, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, proposalChanges = emptyList(),
@@ -318,13 +323,17 @@ class GameAssistantViewModel @JvmOverloads constructor(
             gameTools.screenshot = before.screenshot
             gameTools.fileAccess = before.includeDiagnostics && before.fileAccess
             gameTools.modAccess = before.includeDiagnostics && before.modAccess
+            gameTools.webAccess = before.webAccess
+            val progress: (String) -> Unit = { message ->
+                mutable.update { it.copy(status = message, activities = if (message == "Tänker…") it.activities else (it.activities + message).distinct()) }
+            }
             val reply = if (before.includeDiagnostics) {
-                GameAssistantAgent.run(before.selectedModel, before.prompt, before.history, gameTools, provider::agentTurn) { progress ->
-                    mutable.update { it.copy(status = progress, activities = if (progress == "Tänker…") it.activities else (it.activities + progress).distinct()) }
-                }
+                GameAssistantAgent.run(before.selectedModel, before.prompt, before.history, gameTools,
+                    respond = { request -> provider.agentTurn(request, progress) }, progress = progress)
             } else if (before.screenshot != null) {
-                provider.agentTurn(AssistantProtocol.request(before.selectedModel, before.prompt, null, before.history).apply { before.screenshot.attach(this) })
-            } else provider.chat(before.selectedModel, before.prompt, null, before.history)
+                provider.agentTurn(AssistantProtocol.request(before.selectedModel, before.prompt, null, before.history, before.webAccess)
+                    .apply { before.screenshot.attach(this) }, progress)
+            } else provider.chat(before.selectedModel, before.prompt, null, before.history, before.webAccess, progress)
             gameTools.screenshot = null
             check(before.includeDiagnostics || (reply.proposal == null && reply.toolCall == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null && reply.careProposal == null && !reply.restoreRequested)) { "Unexpected tool without game access" }
             if (reply.proposal != null) snapshotHash = requireNotNull(gameTools.preparedHash)
@@ -453,13 +462,13 @@ class GameAssistantViewModel @JvmOverloads constructor(
         val current = state.value
         val account = current.accounts.selected ?: return
         withContext(Dispatchers.IO) { conversations.save(current.game, account, ConversationStore.Saved(current.history, current.includeDiagnostics, current.fileAccess, current.modAccess,
-            current.debugReportId.takeIf { current.includeDiagnostics && current.reportAttached })) }
+            current.debugReportId.takeIf { current.includeDiagnostics && current.reportAttached }, current.webAccess)) }
     }
     private suspend fun loadConversation() {
         val account = state.value.accounts.selected ?: return
         val saved = withContext(Dispatchers.IO) { conversations.load(state.value.game, account) }
         mutable.update { it.copy(history = saved.history, includeDiagnostics = saved.gameAccess, fileAccess = saved.gameAccess && saved.fileAccess, modAccess = saved.gameAccess && saved.modAccess,
-            debugReportId = saved.debugReportId, reportAttached = saved.gameAccess && saved.debugReportId != null) }
+            debugReportId = saved.debugReportId, reportAttached = saved.gameAccess && saved.debugReportId != null, webAccess = saved.webAccess) }
     }
 
     private suspend fun refreshDiagnostics() {

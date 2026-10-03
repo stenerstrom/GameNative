@@ -266,6 +266,35 @@ class AssistantChatViewModelTest {
         assertNull(model.state.value.sendBlockReason)
     }
 
+    @Test fun webWorksWithoutGameAccessAndChoicePersistsPerGameAndAccount() {
+        val model = opened()
+        assertTrue(model.state.value.webAccess)
+        assertFalse(model.state.value.includeDiagnostics)
+        send(model, "Sök på webben efter en fix")
+        assertTrue(provider.webRequests.last().getJSONArray("tools").toString().contains("web_search"))
+        assertTrue(model.state.value.activities.contains("Söker på webben…"))
+        model.allowWeb(false); idle(model)
+        assertFalse(opened().state.value.webAccess)
+        send(model, "Chatta utan webben")
+        assertFalse(provider.webRequests.last().has("tools"))
+        model.select("second"); idle(model)
+        assertTrue(model.state.value.webAccess)
+        model.select("first"); idle(model)
+        assertFalse(model.state.value.webAccess)
+        model.initialize("STEAM_99"); idle(model)
+        assertTrue(model.state.value.webAccess)
+        model.initialize(game); idle(model)
+        assertFalse(model.state.value.webAccess)
+        model.attachDiagnostics(true); idle(model)
+        send(model, "Läs spelets inställningar")
+        assertFalse(provider.agentRequests.last().getJSONArray("tools").toString().contains("\"type\":\"web_search\""))
+        model.allowWeb(true); idle(model)
+        send(model, "Läs och sök")
+        assertTrue(provider.agentRequests.last().getJSONArray("tools").toString().contains("\"type\":\"web_search\""))
+        model.attachDiagnostics(false); idle(model)
+        assertTrue(model.state.value.webAccess)
+    }
+
     private class FakeProvider : GameAiProvider {
         data class Call(val diagnostics: String?, val history: List<AssistantProtocol.ChatTurn>)
         var selected = "first"
@@ -276,6 +305,7 @@ class AssistantChatViewModelTest {
         var gate: CompletableDeferred<Unit>? = null
         val calls = mutableListOf<Call>()
         val agentRequests = mutableListOf<org.json.JSONObject>()
+        val webRequests = mutableListOf<org.json.JSONObject>()
         var agentProposal: org.json.JSONObject? = null
         var editGameFile = false
         var fileFinalFailure = false
@@ -294,6 +324,12 @@ class AssistantChatViewModelTest {
             gate?.await()
             check(!chatFailure) { "Network failed" }
             return reply
+        }
+        override suspend fun chat(model: String, prompt: String, diagnostics: String?, history: List<AssistantProtocol.ChatTurn>,
+            webAccess: Boolean, progress: (String) -> Unit): AssistantProtocol.Reply {
+            webRequests += AssistantProtocol.request(model, prompt, diagnostics, history, webAccess)
+            if (webAccess) progress("Söker på webben…")
+            return chat(model, prompt, diagnostics, history)
         }
         override suspend fun agentTurn(request: org.json.JSONObject): AssistantProtocol.Reply {
             agentRequests += org.json.JSONObject(request.toString())

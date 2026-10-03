@@ -14,7 +14,7 @@ import org.json.JSONObject
 
 interface ConversationStore {
     data class Saved(val history: List<AssistantProtocol.ChatTurn> = emptyList(), val gameAccess: Boolean = false, val fileAccess: Boolean = false,
-        val modAccess: Boolean = false, val debugReportId: String? = null)
+        val modAccess: Boolean = false, val debugReportId: String? = null, val webAccess: Boolean = true)
     fun load(game: String, account: String): Saved
     fun save(game: String, account: String, saved: Saved)
 }
@@ -43,23 +43,24 @@ class AssistantConversations(context: Context) : ConversationStore {
         val turns = json.getJSONArray("turns")
         val history = ((turns.length() - AssistantProtocol.HISTORY_TURNS).coerceAtLeast(0) until turns.length()).map {
             val turn = turns.getJSONObject(it)
-            AssistantProtocol.ChatTurn(DiagnosticRedactor.text(turn.getString("user")).take(4000),
-                DiagnosticRedactor.text(turn.getString("assistant")).take(AssistantProtocol.HISTORY_REPLY_CHARS),
-                DiagnosticRedactor.text(turn.optString("displayText", turn.getString("assistant"))).take(AssistantProtocol.HISTORY_REPLY_CHARS))
+            AssistantProtocol.ChatTurn(AssistantWeb.redactChat(turn.getString("user")).take(4000),
+                AssistantWeb.redactChat(turn.getString("assistant")).take(AssistantProtocol.HISTORY_REPLY_CHARS),
+                AssistantWeb.redactChat(turn.optString("displayText", turn.getString("assistant"))).take(AssistantProtocol.HISTORY_REPLY_CHARS))
         }
         return ConversationStore.Saved(history, json.optBoolean("gameAccess", false), json.optBoolean("fileAccess", false), json.optBoolean("modAccess", false),
-            json.optString("debugReportId").takeIf { it.matches(Regex("[a-f0-9-]{36}")) })
+            json.optString("debugReportId").takeIf { it.matches(Regex("[a-f0-9-]{36}")) }, json.optBoolean("webAccess", true))
     }
     override fun save(game: String, account: String, saved: ConversationStore.Saved) {
         val turns = JSONArray()
         saved.history.takeLast(AssistantProtocol.HISTORY_TURNS).forEach { turns.put(JSONObject()
-            .put("user", DiagnosticRedactor.text(it.user).take(4000))
-            .put("assistant", DiagnosticRedactor.text(it.assistant).take(AssistantProtocol.HISTORY_REPLY_CHARS))
-            .put("displayText", DiagnosticRedactor.text(it.displayText).take(AssistantProtocol.HISTORY_REPLY_CHARS))) }
+            .put("user", AssistantWeb.redactChat(it.user).take(4000))
+            .put("assistant", AssistantWeb.redactChat(it.assistant).take(AssistantProtocol.HISTORY_REPLY_CHARS))
+            .put("displayText", AssistantWeb.redactChat(it.displayText).take(AssistantProtocol.HISTORY_REPLY_CHARS))) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val json = JSONObject().put("turns", turns).put("gameAccess", saved.gameAccess).put("fileAccess", saved.fileAccess).put("modAccess", saved.modAccess)
             .put("debugReportId", saved.debugReportId ?: JSONObject.NULL)
+            .put("webAccess", saved.webAccess)
         ConfigTransaction.atomicWrite(file(game, account), cipher.iv + cipher.doFinal(json.toString().toByteArray()))
     }
 }

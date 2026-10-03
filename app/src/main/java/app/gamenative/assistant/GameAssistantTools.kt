@@ -25,6 +25,7 @@ class GameAssistantTools(private val context: Context, private val appId: String
         private set
     private var inspectedHash: String? = null
     override var screenshot: GameScreenshot? = null
+    override var webAccess: Boolean = false
     override var debugReport: JSONObject? = null
     override suspend fun searchReport(arguments: JSONObject): String = CodexDebugReportStore.query(requireNotNull(debugReport), arguments)
     override var fileAccess: Boolean = false

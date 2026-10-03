@@ -128,6 +128,7 @@ class MainViewModel @Inject constructor(
         data class ShowGameFeedbackDialog(val appId: String) : MainUiEvent()
         data class ShowMembershipPitch(val appId: String, val trigger: String) : MainUiEvent()
         data class ShowDebugReportDialog(val appId: String, val reportDir: String) : MainUiEvent()
+        data class ShowCodexDebugReport(val appId: String, val reportId: String) : MainUiEvent()
         data class ShowAiDebugOffer(val appId: String, val trigger: String) : MainUiEvent()
         data object ServiceReady : MainUiEvent()
     }
@@ -712,6 +713,22 @@ class MainViewModel @Inject constructor(
                 val sessionLongEnough = sessionLengthMs >= MIN_WARM_PITCH_SESSION_MS
                 gameSessionStartTime = 0L
 
+                if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                    setDebugRun(false)
+                    val report = try {
+                        app.gamenative.assistant.CodexDebugSession.finish(appId)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (error: Exception) {
+                        Timber.w(error, "Codex debug report final save failed")
+                        SnackbarManager.show("Hela felsökningsrapporten kunde inte sparas. Tidigare sparat underlag finns kvar i Codex.")
+                        app.gamenative.assistant.CodexDebugSession.status.value?.takeIf { it.game == appId }?.reportId
+                    }
+                    if (report != null) {
+                        _uiEvent.send(MainUiEvent.ShowCodexDebugReport(appId, report))
+                        return@launch
+                    }
+                }
                 if (_state.value.debugRun) {
                     setDebugRun(false)
                     val reportDir = DebugReportUtils.createPendingReport(context, appId)
@@ -973,6 +990,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun onGameLaunchError(error: String) {
+        app.gamenative.assistant.CodexDebugSession.launchError(_state.value.launchedAppId, error)
         viewModelScope.launch {
             // Hide the splash screen if it's still showing
             bootAwaitingGameWindow = false

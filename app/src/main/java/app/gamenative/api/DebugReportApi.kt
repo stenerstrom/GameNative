@@ -32,6 +32,9 @@ object DebugReportApi {
         perfFile: File? = null,
         logcatFile: File? = null,
     ): SubmitResult = withContext(Dispatchers.IO) {
+        if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+            return@withContext SubmitResult.Failure("Debugrapporter analyseras i Codex-chatten i denna app.")
+        }
         try {
             val headerString = header.toString()
             val bodyBuilder = MultipartBody.Builder()

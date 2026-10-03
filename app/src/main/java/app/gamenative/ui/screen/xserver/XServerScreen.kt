@@ -2477,7 +2477,7 @@ fun XServerScreen(
                             // Autostart performance driver after environment is set up
                             PowerManager.autoStart(container.rootDir)
 
-                            if (debugRun) {
+                            if (debugRun && !app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
                                 PerfSampler.start(
                                     context,
                                     fpsProvider = {
@@ -4041,13 +4041,14 @@ private fun setupXEnvironment(
     }
 
     ProcessHelper.removeAllDebugCallbacks()
-    app.gamenative.assistant.LiveGameSession.begin(appId, debugRun)
+    app.gamenative.assistant.LiveGameSession.begin(appId, debugRun || app.gamenative.assistant.CodexDebugSession.wantsVerbose(appId))
+    val codexDebugLogging = app.gamenative.assistant.CodexDebugSession.begin(context, appId, container, debugRun)
     // read user preferences
     val enableWineDebug = PrefManager.enableWineDebug
     val enableBox86Logs = WinlatorPrefManager.getBoolean("enable_box86_64_logs", false)
     val wineDebugChannels = PrefManager.wineDebugChannels
     // explicitly enable or disable Wine debug channels
-    if (debugRun) {
+    if (debugRun || codexDebugLogging) {
         envVars.put("WINEDEBUG", "warn+seh,+loaddll,+process,+timestamp,+pid,+tid")
         envVars.put("DXVK_LOG_LEVEL", "info")
         envVars.put("DXVK_LOG_PATH", "none")
@@ -4070,13 +4071,13 @@ private fun setupXEnvironment(
     }
     // capture debug output to file if either Wine or Box86/64 logging is enabled
     var logFile: File? = null
-    val captureLogs = debugRun || enableWineDebug || enableBox86Logs
+    val captureLogs = (debugRun && !app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) || enableWineDebug || enableBox86Logs
     if (captureLogs) {
         val wineLogDir = File(context.getExternalFilesDir(null), "wine_logs")
         wineLogDir.mkdirs()
         logFile = File(wineLogDir, if (debugRun) "debug_run_$appId.log" else "wine_debug.log")
         if (logFile.exists()) logFile.delete()
-        if (debugRun) DebugReportUtils.startLogcatCapture(context, appId)
+        if (debugRun && !app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) DebugReportUtils.startLogcatCapture(context, appId)
     }
 
     ProcessHelper.addDebugCallback { line ->
@@ -4418,9 +4419,10 @@ private fun setupXEnvironment(
 
     try {
         immersiveHooks?.windowsVr?.beforeGuestProcessStart()
+        app.gamenative.assistant.CodexDebugSession.effectiveConfiguration(appId, container)
         environment.startEnvironmentComponents()
         // Capture after launcher extraction has persisted runtime-version metadata.
-        app.gamenative.assistant.GameOptimizationSession.attach(context, appId, container, debugRun || diagnostics || captureLogs)
+        app.gamenative.assistant.GameOptimizationSession.attach(context, appId, container, debugRun || codexDebugLogging || diagnostics || captureLogs)
         immersiveHooks?.windowsVr?.onEnvironmentStarted()
         if (container != null && !bootToContainer) {
             CoroutineScope(Dispatchers.IO).launch { GameFileDetection.ensure(context, container) }

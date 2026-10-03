@@ -35,7 +35,7 @@ class GameAssistantActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (!BuildConfig.AI_ASSISTANT_ENABLED) { finish(); return }
-        model.initialize(intent.getStringExtra("app_id").orEmpty(), intent.getStringExtra("game_title").orEmpty())
+        model.initialize(intent.getStringExtra("app_id").orEmpty(), intent.getStringExtra("game_title").orEmpty(), intent.getStringExtra("debug_report_id"), intent.getBooleanExtra("debug_setup", false))
         setContent {
             PluviaTheme {
                 AssistantScreen(model, onClose = { finish() }, openBrowser = { url ->
@@ -47,7 +47,7 @@ class GameAssistantActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        model.initialize(intent.getStringExtra("app_id").orEmpty(), intent.getStringExtra("game_title").orEmpty())
+        model.initialize(intent.getStringExtra("app_id").orEmpty(), intent.getStringExtra("game_title").orEmpty(), intent.getStringExtra("debug_report_id"), intent.getBooleanExtra("debug_setup", false))
     }
 }
 
@@ -55,6 +55,11 @@ data class AssistantUiState(
     val game: String = "",
     val gameTitle: String = "",
     val screenshot: GameScreenshot? = null,
+    val debugSheet: Boolean = false,
+    val debugReports: List<org.json.JSONObject> = emptyList(),
+    val debugReportId: String? = null,
+    val debugReport: org.json.JSONObject? = null,
+    val reportAttached: Boolean = false,
     val busy: Boolean = false,
     val status: String = "",
     val accounts: ChatGptProvider.Accounts = ChatGptProvider.Accounts(emptyList(), null),
@@ -106,10 +111,18 @@ class GameAssistantViewModel @JvmOverloads constructor(
     private var snapshotHash: String? = null
     private var job: Job? = null
 
-    fun initialize(game: String, title: String = "") {
-        if (state.value.game == game || state.value.busy) return
+    fun initialize(game: String, title: String = "", reportId: String? = null, debugSetup: Boolean = false) {
+        if (state.value.busy) return
+        if (state.value.game == game) {
+            action("Läser felsökningsrapporter…") {
+                mutable.update { it.copy(debugSheet = debugSetup || it.debugSheet, reportAttached = if (reportId != null) false else it.reportAttached, debugReportId = reportId ?: it.debugReportId) }
+                loadDebugReports(reportId ?: CodexDebugSession.status.value?.takeIf { it.game == game && it.recording }?.reportId ?: state.value.debugReportId)
+                mutable.update { it.copy(status = "") }
+            }
+            return
+        }
         job?.cancel()
-        mutable.value = AssistantUiState(game = game, gameTitle = title.ifBlank { game })
+        mutable.value = AssistantUiState(game = game, gameTitle = title.ifBlank { game }, debugSheet = debugSetup, debugReportId = reportId)
         snapshotHash = null
         tools = null
         action("Opening chat…") {
@@ -117,9 +130,75 @@ class GameAssistantViewModel @JvmOverloads constructor(
             mutable.update { it.copy(offlineUndo = tools!!.hasOfflineUndo()) }
             refreshAccounts()
             loadConversation()
+            if (reportId != null) mutable.update { it.copy(debugReportId = reportId, reportAttached = false) }
+            loadDebugReports(reportId ?: state.value.debugReportId)
             if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) loadModels()
             mutable.update { it.copy(status = "") }
         }
+    }
+    private suspend fun loadDebugReports(preferred: String? = state.value.debugReportId) {
+        val app = getApplication<Application>(); val game = state.value.game
+        val reports = CodexDebugSession.reports(app, game)
+        val id = preferred?.takeIf { wanted -> reports.any { it.optString("id") == wanted } } ?: reports.firstOrNull()?.getString("id")
+        val report = id?.let { withContext(Dispatchers.IO) { CodexDebugSession.store(app).read(game, it) } }
+        mutable.update { it.copy(debugReports = reports, debugReportId = id, debugReport = report,
+            reportAttached = it.reportAttached && id == it.debugReportId) }
+    }
+    fun openDebug() = action("Läser felsökningsrapporter…") {
+        loadDebugReports(); mutable.update { it.copy(debugSheet = true, status = "") }
+    }
+    fun closeDebug() { mutable.update { it.copy(debugSheet = false) } }
+    fun selectDebugReport(id: String) = action("Läser vald rapport…") {
+        check(state.value.debugReports.any { it.optString("id") == id }) { "Rapporten finns inte för detta spel." }
+        mutable.update { it.copy(reportAttached = false) }
+        loadDebugReports(id); saveConversation(); mutable.update { it.copy(status = "") }
+    }
+    fun startDebug(problem: DebugProblem) = action("Startar lokal felsökning…") {
+        val app = getApplication<Application>(); val game = state.value.game
+        if (LiveGameSession.view(game) != null) {
+            val id = CodexDebugSession.start(app, game, problem)
+            loadDebugReports(id)
+            mutable.update { it.copy(debugSheet = false, status = "Insamling pågår lokalt. Markera när problemet händer och begär sedan analys.") }
+            InGameAssistantUi.close(game)
+        } else {
+            try {
+                val launch = CodexDebugSession.requestLaunch(app, game, problem)
+                mutable.update { it.copy(debugSheet = false, status = "Startar spelet med lokal felsökning. Rapporten öppnas här efteråt.") }
+                app.startActivity(launch)
+            } catch (error: Exception) {
+                CodexDebugSession.cancelRequest(game)
+                throw error
+            }
+        }
+    }
+    fun markDebug() = action("Markerar problemet…") {
+        CodexDebugSession.mark(state.value.game); loadDebugReports(CodexDebugSession.status.value?.reportId)
+        mutable.update { it.copy(status = "Tidpunkten är markerad i rapporten.") }
+    }
+    fun stopDebug() = action("Sparar rapporten…") {
+        CodexDebugSession.finish(state.value.game); loadDebugReports(CodexDebugSession.status.value?.reportId)
+        mutable.update { it.copy(status = "Rapporten är sparad. Du kan fortsätta spela eller analysera den här.") }
+    }
+    fun deleteDebug() = action("Tar bort lokal rapport…") {
+        val id = requireNotNull(state.value.debugReportId)
+        withContext(Dispatchers.IO) { CodexDebugSession.store(getApplication()).delete(state.value.game, id) }
+        mutable.update { it.copy(debugReportId = null, reportAttached = false) }; loadDebugReports()
+        saveConversation()
+        mutable.update { it.copy(status = "Rapporten är borttagen. Sparade chattsvar och återställningspunkter behålls.") }
+    }
+    fun importOldDebug() = action("Läser äldre lokal rapport…") {
+        val id = CodexDebugSession.importLegacy(getApplication(), state.value.game)
+        loadDebugReports(id); mutable.update { it.copy(status = "Äldre rapport importerad lokalt. Tidpunkter och inställningar är inte verifierade mot en bestämd körning.") }
+    }
+    fun detachDebug() = action("Kopplar loss rapporten…") {
+        tools?.debugReport = null; mutable.update { it.copy(reportAttached = false, status = "") }; saveConversation()
+    }
+    fun analyzeDebug() {
+        if (state.value.busy || state.value.debugReportId == null) return
+        val problem = DebugProblem.entries.firstOrNull { it.name == state.value.debugReport?.optString("problem") }?.label ?: "Annat"
+        mutable.update { it.copy(includeDiagnostics = true, reportAttached = true, debugSheet = false,
+            prompt = it.prompt.ifBlank { "Undersök min felsökningsrapport ($problem). Vad visar underlaget och vad är nästa konkreta åtgärd?" }) }
+        send()
     }
     fun captureScreenshot() = action("Läser spelets bildyta…") {
         val shot = GameScreenshot.capture(state.value.game)
@@ -134,6 +213,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
         mutable.update { it.copy(status = "Settings loaded for review. You can chat even when no log is available.") }
     }
     fun attachDiagnostics(include: Boolean) = action("Uppdaterar spelåtkomst…") {
+        if (!include) mutable.update { it.copy(reportAttached = false) }
         mutable.update { it.copy(includeDiagnostics = include, fileAccess = include && it.fileAccess, modAccess = include && it.modAccess, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, proposalChanges = emptyList(), restoreRequested = false,
             status = if (include) "Assistenten kan nu undersöka spelet när du skickar en fråga." else "Spelåtkomst avstängd. Du kan fortfarande chatta.") }
         saveConversation()
@@ -180,6 +260,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
     }
     fun clearChat() {
         action("Ny konversation") {
+            mutable.update { it.copy(reportAttached = false) }
             mutable.update { it.copy(history = emptyList(), screenshot = null, answer = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, proposalChanges = emptyList(), activities = emptyList(), restoreRequested = false) }
             saveConversation()
         }
@@ -187,20 +268,24 @@ class GameAssistantViewModel @JvmOverloads constructor(
     fun cancel() { job?.cancel() }
 
     fun connect(newAccount: Boolean, openBrowser: (String) -> Unit) = action("Complete sign-in in the browser, then return here. Account eligibility has not been verified.") {
+        mutable.update { it.copy(reportAttached = false) }
         mutable.update { it.copy(verified = false, screenshot = null, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, history = emptyList(), answer = "", includeDiagnostics = false, fileAccess = false, modAccess = false) }
         provider.signIn(if (newAccount) null else state.value.accounts.selected) { url -> withContext(Dispatchers.Main) { openBrowser(url) } }
         refreshAccounts()
         loadConversation()
+        loadDebugReports()
         if (state.value.accounts.accounts.any { it.id == state.value.accounts.selected && it.planEnabled }) {
             loadModels()
             mutable.update { it.copy(status = "Ansluten till ditt ChatGPT-abonnemang. Skriv ett meddelande för att börja.") }
         } else mutable.update { it.copy(status = "Identity signed in. ChatGPT plan usage was not granted; AI requests are disabled.") }
     }
     fun select(id: String) = action("Selecting connection…") {
+        mutable.update { it.copy(reportAttached = false) }
         provider.select(id)
         mutable.update { it.copy(screenshot = null, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", verified = false, proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false) }
         refreshAccounts()
         loadConversation()
+        loadDebugReports()
         if (state.value.accounts.accounts.any { it.id == id && it.planEnabled }) loadModels()
         mutable.update { it.copy(status = "") }
     }
@@ -211,6 +296,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
         mutable.update { it.copy(verified = true, status = "Completed AI response: $answer") }
     }
     fun disconnect() = action("Signing out…") {
+        mutable.update { it.copy(reportAttached = false) }
         val revoked = provider.signOut()
         mutable.update { it.copy(verified = false, screenshot = null, models = emptyList(), modelsUpdatedAt = null, selectedModel = "", proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, answer = "", history = emptyList(), includeDiagnostics = false, fileAccess = false, modAccess = false,
             status = if (revoked) "Signed out. Registration retained for reconnecting." else "Signed out locally. Remote revocation was not confirmed; disconnect this app in ChatGPT settings.") }
@@ -226,6 +312,9 @@ class GameAssistantViewModel @JvmOverloads constructor(
             mutable.update { it.copy(proposal = null, fileProposal = null, modProposal = null, offlineProposal = null, careProposal = null, proposalChanges = emptyList(), restoreRequested = false, activities = emptyList(), answer = "", verified = false) }
             val gameTools = requireNotNull(tools)
             gameTools.beginTurn()
+            gameTools.debugReport = if (before.includeDiagnostics && before.reportAttached) {
+                CodexDebugSession.frozen(getApplication(), before.game, requireNotNull(before.debugReportId))
+            } else null
             gameTools.screenshot = before.screenshot
             gameTools.fileAccess = before.includeDiagnostics && before.fileAccess
             gameTools.modAccess = before.includeDiagnostics && before.modAccess
@@ -239,7 +328,8 @@ class GameAssistantViewModel @JvmOverloads constructor(
             gameTools.screenshot = null
             check(before.includeDiagnostics || (reply.proposal == null && reply.toolCall == null && reply.fileProposal == null && reply.modProposal == null && reply.offlineProposal == null && reply.careProposal == null && !reply.restoreRequested)) { "Unexpected tool without game access" }
             if (reply.proposal != null) snapshotHash = requireNotNull(gameTools.preparedHash)
-            val history = (before.history + AssistantProtocol.conversationTurn(before.prompt + if (before.screenshot != null) "\n[Bifogad spelbild; sparas inte i historiken]" else "", reply)).takeLast(AssistantProtocol.HISTORY_TURNS)
+            val reportNote = gameTools.debugReport?.let { "\n[Felsökningsrapport ${it.getString("id")} · ${it.optString("state")}]" }.orEmpty()
+            val history = (before.history + AssistantProtocol.conversationTurn(before.prompt + reportNote + if (before.screenshot != null) "\n[Bifogad spelbild; sparas inte i historiken]" else "", reply)).takeLast(AssistantProtocol.HISTORY_TURNS)
             mutable.update { it.copy(history = history, prompt = "", screenshot = null, proposal = reply.proposal, fileProposal = reply.fileProposal, modProposal = reply.modProposal, offlineProposal = reply.offlineProposal, careProposal = reply.careProposal, verified = true,
                 proposalChanges = gameTools.preparedChanges, restoreRequested = reply.restoreRequested, status = "") }
             saveConversation()
@@ -362,12 +452,14 @@ class GameAssistantViewModel @JvmOverloads constructor(
     private suspend fun saveConversation() {
         val current = state.value
         val account = current.accounts.selected ?: return
-        withContext(Dispatchers.IO) { conversations.save(current.game, account, ConversationStore.Saved(current.history, current.includeDiagnostics, current.fileAccess, current.modAccess)) }
+        withContext(Dispatchers.IO) { conversations.save(current.game, account, ConversationStore.Saved(current.history, current.includeDiagnostics, current.fileAccess, current.modAccess,
+            current.debugReportId.takeIf { current.includeDiagnostics && current.reportAttached })) }
     }
     private suspend fun loadConversation() {
         val account = state.value.accounts.selected ?: return
         val saved = withContext(Dispatchers.IO) { conversations.load(state.value.game, account) }
-        mutable.update { it.copy(history = saved.history, includeDiagnostics = saved.gameAccess, fileAccess = saved.gameAccess && saved.fileAccess, modAccess = saved.gameAccess && saved.modAccess) }
+        mutable.update { it.copy(history = saved.history, includeDiagnostics = saved.gameAccess, fileAccess = saved.gameAccess && saved.fileAccess, modAccess = saved.gameAccess && saved.modAccess,
+            debugReportId = saved.debugReportId, reportAttached = saved.gameAccess && saved.debugReportId != null) }
     }
 
     private suspend fun refreshDiagnostics() {
@@ -399,6 +491,7 @@ class GameAssistantViewModel @JvmOverloads constructor(
                 mutable.update { it.copy(status = DiagnosticRedactor.text(e.message ?: "Operation failed").take(1500)) }
             } finally {
                 tools?.screenshot = null
+                tools?.debugReport = null
                 // Refresh local account and undo state without issuing another network request.
                 withContext(NonCancellable) {
                     try {

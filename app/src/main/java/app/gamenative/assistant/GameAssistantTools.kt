@@ -25,6 +25,8 @@ class GameAssistantTools(private val context: Context, private val appId: String
         private set
     private var inspectedHash: String? = null
     override var screenshot: GameScreenshot? = null
+    override var debugReport: JSONObject? = null
+    override suspend fun searchReport(arguments: JSONObject): String = CodexDebugReportStore.query(requireNotNull(debugReport), arguments)
     override var fileAccess: Boolean = false
     override var modAccess: Boolean = false
     override val offlineAccess: Boolean get() = appId.matches(Regex("CUSTOM_GAME_[1-9][0-9]*"))
@@ -102,6 +104,11 @@ class GameAssistantTools(private val context: Context, private val appId: String
         textFiles.prepare(proposal)
     }
     override suspend fun read(name: String): String {
+        if (name == "read_debug_report") return CodexDebugReportStore.summary(requireNotNull(debugReport)).toString()
+        if (debugReport != null && name in setOf("read_game_log", "read_performance", "read_controller_trace")) {
+            return searchReport(JSONObject().put("section", when (name) { "read_game_log" -> "log"; "read_performance" -> "performance"; else -> "controller" })
+                .put("query", "").put("from_ms", 0).put("to_ms", 0).put("offset", 0))
+        }
         if (name == "read_game_profiles") return care.inventory(modAccess).toString()
         if (name == "read_control_profiles") return care.readControls().toString()
         if (name == "read_preflight") return preflight().apply { if (modAccess) put("mods", care.modReport()) }.toString()
@@ -196,6 +203,8 @@ class GameAssistantTools(private val context: Context, private val appId: String
                 else -> listOf("lastSessionAverageFps", "lastSessionSeconds", "measurementNote", "performance")
             }
             keys.forEach { result.put(it, data.opt(it)) }
+            if (debugReport != null && name == "read_configuration") result.put("reportContext",
+                "These are current settings, not the historical settings in read_debug_report. Revalidate before applying a proposed change.")
             DiagnosticRedactor.text(result.toString())
         }
     }

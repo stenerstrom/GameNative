@@ -1,16 +1,13 @@
-GameNative AI Dev 1.2.1-ai-dev.15 – spelverktyg, profiler och bilder
+GameNative AI Dev 1.2.1-ai-dev.16 – felsökningsrapporter till Codex
 
-• Spelverktyg samlar startkontroll, återställningsprofiler, kontroller och modprofiler i chatten.
-• Spara namngivna spellägen med grafik-/runtimeval, kontrollmappning och modval. Granska återställning, tillämpa och ångra även efter appomstart. Spelinstallation, sparfiler, register och runtimepaket kopieras inte.
-• Kontroll före start granskar EXE, kända konfigurationsfel, saknade DLL:er i tillgänglig logg och numrerade installationsdelar. Bibliotekets vanliga Spela-knapp visar lokala varningar före start utan AI-anrop.
-• Bifoga spelbild i in-game-chatten: tryck på miniatyren för större förhandsvisning, ta bort vid behov och skicka med nästa meddelande. Bilden tas från spelets renderingsyta och sparas inte i chatthistoriken. Ingen kontinuerlig syn eller automatisk maskering av privat bildinnehåll.
-• Offlineimport stöder ZIP och 7z samt mappar. Originalet behålls. Fortsätt förbereder Wine-miljön före chatten. Codex kan granska medföljande VC++/DirectX-EXE via installerarverktyget; Windows-guiden slutförs manuellt. Högst 20 GiB och 50 000 arkivposter; inga krypterade eller delade arkiv.
-• Codex kan kopiera kontrollbiblioteksprofil eller föreslå en knappmappning för bara valt spel. Enstaka knappbyte bevarar sticks och Home. Spelarplats och avancerad redigering finns kvar i den vanliga Controller-menyn. Ingen inputbrygga eller JNI har ändrats.
-• Modprofiler som Original/Grafik/Gameplay visar delade filer och aktiv vinnare. Granskade filmoddar kan växlas med filprioritet, uttryckligt modgodkännande och återställning. Gamla lagerbackuper bevaras. Plugin-laddordning och särskilda mål använder Modbibliotek och Nexus.
-• Be Codex undersöka hackandet samlar bildtider, sensorer, spelmål och mätningar för försiktiga hypoteser och ett försök i taget. 120 FPS är ett mål; jämför samma scen före och efter.
+• Felsök med Codex ersätter Discord-flödet för debugrapporter i AI Dev. Välj Krasch/startfel, Hack/FPS, Kontroll eller Annat. Samma funktion finns under Felsök i chatten och medan du spelar.
+• Markera fel i den lilla spelpanelen. Varje rapport hör till en bestämd körning och behåller filtrerade inställningar, processlogg, mätningar och tillgänglig kontrollobservation. Inga kontrollinställningar ändras av insamlingen.
+• Analysera med Codex använder befintlig ChatGPT-anslutning och en fryst kopia av vald rapport. Granska underlaget, sök fel och fortsätt i samma chatt. Ändringar kräver fortfarande Tillämpa och har befintlig Ångra.
+• Lokala rapporter bevaras vid nätverksfel och kan återfinnas efter appavbrott. Ett utkast sparas före spelstart. Saknad Wine-logg blockerar inte en rapport. Ingen automatisk AI-överföring eller automatisk återförsökning.
+• Rapportkopplingen följer chatten för valt spel och konto. Äldre lokala debugrapporter kan importeras uttryckligen. Jämförande FPS-tester hålls isär från felsökningsinsamling.
 
-Profiländringar kräver stoppat spel. Tidigare liveavläsning och stödda kontrollbryggeförsök finns kvar. Ändrade modfiler och inställningar blockerar överskrivning och behåller backupen.
+Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket/signering, versionskod 36. Avinstallera inte och rensa inte data. Ingen separat API-debitering eller extern dator behövs.
 
-Uppdatera via ⋮ → Appuppdateringar eller installera APK:n ovanpå AI Dev. Samma paket/signering, versionskod 35. Avinstallera inte och rensa inte data. Befintlig ChatGPT-anslutning används; ingen separat API-debitering.
+Underlaget är begränsat; loggstormar och sista osparade delen före processdöd kan saknas. Extra Wine-loggning kräver ny spelstart. Fysisk input, spelkrascher, molnsvar och prestandapåverkan behöver provas på MagicPad. Se docs/MAGICPAD_AI_PROTOTYPE.md för teststeg och begränsningar.
 
-482 tester godkända, inga fel och ett befintligt filsystemberoende test överhoppat. APK-bygge lyckat; UI granskat i stående och liggande läge. Verklig PixelCopy/modellens bildsvar, native 7z, Wine-installation, spelinput och prestanda behöver provas på MagicPad. Se docs/MAGICPAD_AI_PROTOTYPE.md för teststegen och begränsningarna.
+341 relevanta tester godkända, inga fel eller överhoppade tester. APK-bygget lyckades och rapportvyn är granskad i stående och liggande läge.

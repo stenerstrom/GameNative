@@ -54,6 +54,7 @@ class LiveSessionBuffer(private val wallTime: () -> Long, private val elapsedTim
         return token
     }
     @Synchronized fun token(): String? = active?.token
+    @Synchronized fun activeView(): View? = active?.game?.let(::view)
     @Synchronized fun end() { active = null }
     @Synchronized fun paused(token: String?, paused: Boolean) {
         val session = active?.takeIf { token != null && it.token == token } ?: return
@@ -144,7 +145,11 @@ object LiveGameSession {
         buffer.assistant(game, visible)
         if (visible) GameOptimizationSession.stop(game, "Chatten öppnades under mätningen.")
     }
-    fun end() { GameOptimizationSession.end(); ControllerInputTrace.endLaunch(token()); buffer.end(); LiveControllerChanges.clear() }
+    fun end() {
+        ControllerInputTrace.endLaunch(token())
+        buffer.activeView()?.let(CodexDebugSession::ending)
+        GameOptimizationSession.end(); buffer.end(); LiveControllerChanges.clear()
+    }
     fun view(game: String) = buffer.view(game)
     fun read(game: String) = view(game)?.json() ?: """{"available":false,"note":"No active launch for the selected game. Historical reports are separate; start the game to read live data."}"""
 }

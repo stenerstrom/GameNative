@@ -1870,6 +1870,7 @@
     <string name="option_play_with_diagnostics">Diagnostic Run</string>
     <string name="option_share_diagnostics">Share diagnostics</string>
     <string name="option_ai_debug_run">Get AI help</string>
+    <string name="codex_debug_mode">Felsök med Codex</string>
     <string name="debug_report_title">AI Debug Report</string>
     <string name="debug_report_summary">%1$s · %2$s · log captured (%3$s MB)</string>
     <string name="debug_report_what_went_wrong">What went wrong?</string>

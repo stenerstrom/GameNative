@@ -85,12 +85,14 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = { careSheet = true }, enabled = !state.busy, modifier = Modifier.testTag("care-open")) { Text("Spelverktyg") }
+                TextButton(onClick = model::openDebug, enabled = !state.busy, modifier = Modifier.testTag("debug-open")) { Text("Felsök") }
                 GameOptimizationButton(model, inGame)
                 if (inGame) TextButton(onClick = model::captureScreenshot, enabled = !state.busy, modifier = Modifier.testTag("screenshot-capture")) { Text("Bifoga spelbild") }
             }
             if (inGame) LiveSessionBanner(state.game, model)
             LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (state.debugReport != null) item { CodexDebugCard(model, state) }
                 if (state.history.isEmpty()) item {
                     Column(Modifier.widthIn(max = 800.dp).fillMaxWidth().padding(vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Vad vill du få ordning på?", style = MaterialTheme.typography.headlineSmall)
@@ -257,6 +259,7 @@ fun AssistantScreen(model: GameAssistantViewModel, onClose: () -> Unit, openBrow
             }
         }
     }
+    CodexDebugSheet(model, inGame)
     if (careSheet) GameCareSheet(model, inGame) { careSheet = false }
     if (imagePreview) state.screenshot?.let { shot ->
         AlertDialog(onDismissRequest = { imagePreview = false }, title = { Text("Spelbild före sändning") }, text = {

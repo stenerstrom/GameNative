@@ -4,6 +4,46 @@ Utgångspunkt: upstream `utkarshdalal/GameNative`, commit `375785a7f416ff5bcf2da
 Fork: https://github.com/stenerstrom/GameNative. Gren: `magicpad-ai-prototype`.
 Kontrollerad dokumentation: 2026-10-02. Ingen `AGENTS.md` fanns i denna upstream-version.
 
+## Uppdatering 2026-10-03: felsökningsrapporter till Codex
+
+**1.2.1-ai-dev.16**, Android `versionCode=36`, ersätter Discord-flödet för debugrapporter i AI Dev. Uppdatera via **⋮ → Appuppdateringar**, eller installera [ai-dev.16-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-36/GameNative-AI-Dev-1.2.1-ai-dev.16.apk) ovanpå befintlig AI Dev. Paketet `app.gamenative.aidev` och signeringscertifikatet är oförändrade. Avinstallera inte och rensa inte data.
+
+### Användning på MagicPad
+
+1. Välj **Felsök med Codex** i spelets meny, eller **Quick Menu → Codex i spelet → Felsök**. Om en tidigare rapport visas väljer du **Ny insamling**.
+2. Välj **Krasch / startfel**, **Hack / FPS**, **Kontroll** eller **Annat**. Från biblioteket startar **Starta spel och samla** spelet. Under spel använder **Samla från pågående spel** befintlig utdata och mätningar utan omstart. Bara Krasch/startfel vid en ny start lägger till extra Wine-loggning; redan körande processer får inte nya startflaggor i efterhand.
+3. **Markera fel** i den lilla spelpanelen sparar tidpunkten. **Codex** öppnar chatten. Kontrollvalet begär det befintliga 20-sekunderstestet en gång för rapporten. Tryck knappar/spakar och kontrollera om spelet reagerar. Om spelet inte är redo visas hur du startar testet manuellt under **Kontroll och input**. Insamlingen ändrar inga sparade inställningar eller inputdestinationer.
+4. Avsluta spelet eller välj **Avsluta insamling**. Rapporten kan också analyseras medan spelet körs. **Analysera med Codex** skickar frågan och ger agenten läsåtkomst till den valda, filtrerade rapporten via befintlig ChatGPT-anslutning. **Visa underlag före analys** visar översikt, logg, mätningar och input med sidvisning. Bilder bifogas separat med befintlig bildknapp.
+5. Rapporten visas i samma chatt. Codex kan söka efter fel och läsa tidsintervall kring markeringar. Ändringar använder befintliga granskningskort och Ångra. Historiska inställningar ger inte skrivbehörighet: aktuell konfiguration måste läsas och valideras före ett förslag. Permanenta fil-/mod-/inställningsändringar kräver avslutat spel; befintliga stödda liveförsök i kontrollbryggan är separata.
+6. Efter appavbrott eller nätverksfel: öppna spelets chatt och **Felsök**, välj rapport och begär analys igen. Inga AI-anrop återförsöks automatiskt. Ett rapportutkast sparas före startförsöket; kända startfel kan sparas innan någon spelprocess observerats. Efter processdöd återfinns senaste sparningen som ofullständig.
+7. **Byt rapport** väljer en tidigare körning. En analyserad rapports koppling följer chatten för just detta spel och ChatGPT-konto, även efter omstart. **Koppla loss**, Ny chatt eller avstängd spelåtkomst tar bort kopplingen. Ett annat konto ärver inte den. **Importera äldre lokal debugrapport** hämtar en tidigare sparad Discord-formatrapport lokalt; originalet behålls och ingen överföring sker före begärd analys.
+
+### Underlag, avbrott och gränser
+
+Varje rapport har eget ID och spelomgångens sessions-ID, en filtrerad inställningsbild från starten, app-/enhetsversion, tillgängliga modnamn/versioner/status med insamlingstid, processutdata, bildtider/sensorer och eventuell kontrollobservation. Modmetadata visar appens deklarerade tillstånd, inte att spelet laddat modden. Saknade uppgifter förblir okända. Legacy-importer märks med osäker koppling mellan startinställningar och logg; deras gamla prestandarapport blandas inte in som en verifierad matchning.
+
+Insamlingen återanvänder befintliga avläsningsbuffertar och sparar atomiskt ungefär var tredje sekund i privat `noBackupFilesDir`. Ingen extra sensormätare eller generell logcat-inspelning startas. Vid normal avslutning tas en sista kopia innan livebufferten töms. Vid processdöd kan sista osparade delen saknas. Ett lagringsfel ska inte stoppa spelets avslutning; föregående atomiska kopia behålls.
+
+Gränser: 1 000 loggrader/160 000 loggtecken, 600 mätprover (ungefär fem minuter vid 500 ms intervall), 30 markeringar och 1,5 MB per rapport. Livebufferten behåller högst 160 rader/24 000 tecken; loggstormar kan förlora rader mellan sparningarna. Identiska rader mottagna i samma millisekund slås ihop. Bortfall och tidsstämplar redovisas. Äldre markeringar kan ligga utanför kvarvarande mät-/loggfönster. Högst tio rapporter per spel och fyrtio totalt behålls vid nästa insamlingsstart; en pågående rapport undantas. Chattsvar och återställningskopior gallras inte med rapporterna.
+
+Hemligheter filtreras före livebufferten, inklusive privata nyckelblock över flera rader. Inställningar använder en tillåten fältlista; miljövariabler, OAuth-uppgifter, installationsarkiv, spelbinärer och sparfiler ingår inte. Filtrering kan inte identifiera alla privata fritextuppgifter, så underlaget går att granska. Bilder skickas aldrig automatiskt. Loggar och metadata behandlas som opålitligt underlag, inte instruktioner till agenten.
+
+Analysen använder en fryst kopia av vald rapport under hela verktygsomgången. Verktygen tar inte godtyckliga filvägar eller andra spel-ID:n. Logg-/mätfrågor använder bokstavlig textsökning, tidsintervall och paginering: högst 60 rader/18 000 tecken per svar. Kontrollavsnittet använder den befintliga begränsade observationen. Rapporter raderas inte efter ett AI-svar. Rapport-ID och chattsvar följer den krypterade konversationen; råa verktygsresultat kopieras inte dit.
+
+Extra loggning, sparning och öppen chatt kan påverka prestandan. Jämförande FPS-mätning spärras under rapportinsamling, och ett pågående jämförelsetest avslutas som otillförlitligt om felsökning startas. Efter stoppad normal insamling kan ett separat jämförelsetest göras. En körning med extra startloggning kräver vanlig ny spelstart för jämförbara mätningar. Ingen förbättring eller 120 FPS utlovas.
+
+### Implementation och verifiering
+
+`CodexDebugReportStore` sköter lagring, storleksgränser, återhämtning och begränsade läsningar. `CodexDebugSession` binder insamlingen till spelomgången. `CodexDebugUi` ger rapportkort, val och markering. `GameAssistantAgent` återanvänder befintlig native-agent och ChatGPT-provider med två nya läsverktyg. Ingen Codex app-server, extern dator eller separat API-debitering tillkommer.
+
+I AI Dev går start-/slutflödet till assistenten. Discord-dialog, Discord-inloggning och betalvägg ingår inte i debugflödet. `DebugReportApi.submit` avslår anrop före autentisering/nätverksåtkomst. Upstream-flödet behålls bakom byggflaggan. Detta gäller debugrapporter; övriga butikstjänster, supportlänkar och appens analysinställningar är separata.
+
+Slutresultat och underlag sparas i `build/ai-dev/verification/codex-debug/`. Tester täcker tom Wine-logg, spel-/rapportisolering, sökning/paginering, hemligheter, symlänkar, avbrott/återhämtning, tidiga startfel, sista loggkopian, kontoavgränsad rapportkoppling, explicita AI-anrop/manuell återförsökning, validering av inställningar, kontrollvägar och spärrade FPS-jämförelser. Chatten/rapportgranskningen provas och renderas i 360 × 800 och 1280 × 800. AI-svar, sensorer och processlivscykel är simulerade.
+
+**341 tester godkända, inga fel eller överhoppade tester.** `assembleModernDebug -PaiDev=true` lyckades. Sviten omfattar `app.gamenative.assistant.*`, `com.winlator.inputcontrols.*`, `PhysicalControllerHandlerTest`, `FpsLimiterUtilsTest` och `ContainerConfigDialogContainerUpdateTest`. Den omfattar inte alla övriga upstream-tester. Vid paketering verifieras paket/version/signering och samtliga native-bibliotek jämförs med ai-dev.15.
+
+Ingen fysisk Android-enhet är ansluten här. Verkliga Wine-krascher, processdöd under spel, molnsvar via kontot, lagringsbelastning och input med den nya panelen behöver provas på MagicPad. Börja med Bloodstained: verifiera kontrollen före/under/efter insamling, markera ett problem, avsluta, analysera och kontrollera att samma körning visas. Ingen JNI-, SDL- eller native-bryggkod har ändrats.
+
 ## Uppdatering 2026-10-02: spelverktyg, profiler och bilder
 
 **1.2.1-ai-dev.15**, Android `versionCode=35`, samlar funktionerna under **Spelverktyg** i chatten. Installera över befintlig AI Dev via **⋮ → Appuppdateringar** eller [uppdaterings-APK:n](https://github.com/stenerstrom/GameNative/releases/download/ai-dev-35/GameNative-AI-Dev-1.2.1-ai-dev.15.apk). Paketet `app.gamenative.aidev` och signeringsnyckeln är desamma. Avinstallera inte och rensa inte appdata.

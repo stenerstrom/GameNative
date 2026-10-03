@@ -52,6 +52,7 @@ object GameOptimizationSession {
         val info = requireNotNull(launch?.takeIf { it.game == game && LiveGameSession.view(game)?.token == it.token }) { "Starta spelet med denna appversion före mätning." }
         check(PluviaApp.isActivityInForeground && LiveGameSession.view(game)?.paused == false) { "Återuppta spelet före mätning." }
         check(!info.debug) { "Använd vanlig spelstart utan diagnostikläge. Stäng även av eventuell Wine/Box64-debugloggning före jämförande mätning." }
+        check(CodexDebugSession.status.value?.let { it.game == game && it.recording } != true) { "Avsluta felsökningsinsamlingen före en jämförande FPS-mätning." }
         check(GameOptimizationStore.fingerprint(JSONObject(info.config.readText())) == info.configuration) { "Konfigurationen ändrades sedan spelstart. Starta om spelet före mätning." }
         store(context, game).goal(target, scene)
         environment = environment(info.context)

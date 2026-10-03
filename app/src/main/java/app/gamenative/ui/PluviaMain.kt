@@ -364,7 +364,7 @@ fun PluviaMain(
     val discordTokenPresent by PrefManager.discordRelayTokenPresent
 
     LaunchedEffect(Unit) {
-        if (!PrefManager.discordRelayTokenPresent.value) {
+        if (!app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED && !PrefManager.discordRelayTokenPresent.value) {
             PrefManager.discordRelayTokenPresent.value = withContext(Dispatchers.IO) {
                 PrefManager.discordRelayToken.isNotEmpty()
             }
@@ -430,7 +430,13 @@ fun PluviaMain(
                 navController.navigate(PluviaScreen.XServer.route)
             }
         } else {
-            MainActivity.wasLaunchedViaExternalIntent = true
+            val codexLaunch = app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED && app.gamenative.assistant.CodexDebugSession.requested(resolvedAppId)
+            MainActivity.wasLaunchedViaExternalIntent = !codexLaunch
+            if (codexLaunch) {
+                viewModel.setDebugRun(false)
+                viewModel.setDiagnostics(false)
+                viewModel.setTestGraphics(false)
+            }
             trackGameLaunched(resolvedAppId)
             viewModel.setLaunchedAppId(resolvedAppId)
             viewModel.setBootToContainer(false)
@@ -726,7 +732,14 @@ fun PluviaMain(
                     )
                 }
 
+                is MainViewModel.MainUiEvent.ShowCodexDebugReport -> {
+                    SteamService.keepAlive = false
+                    context.startActivity(app.gamenative.assistant.CodexDebugSession.intent(context, event.appId, event.reportId))
+                }
                 is MainViewModel.MainUiEvent.ShowDebugReportDialog -> {
+                    if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                        context.startActivity(app.gamenative.assistant.CodexDebugSession.intent(context, event.appId, setup = true))
+                    } else {
                     val dir = File(event.reportDir)
                     val header = withContext(Dispatchers.IO) { DebugReportUtils.readHeader(dir) }
                     debugReportState = DebugReportDialogState(
@@ -738,9 +751,13 @@ fun PluviaMain(
                         deviceName = header?.optString("deviceName") ?: "",
                         logSizeBytes = withContext(Dispatchers.IO) { DebugReportUtils.logFile(dir).length() },
                     )
+                    }
                 }
 
                 is MainViewModel.MainUiEvent.ShowAiDebugOffer -> {
+                    if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                        context.startActivity(app.gamenative.assistant.CodexDebugSession.intent(context, event.appId, setup = true))
+                    } else {
                     aiDebugOfferAppId = event.appId
                     aiDebugOfferTrigger = event.trigger
                     trackAiDebugOffer("ai_debug_offer_shown", event.appId, event.trigger)
@@ -756,6 +773,7 @@ fun PluviaMain(
                         confirmBtnText = context.getString(R.string.debug_offer_confirm),
                         dismissBtnText = context.getString(R.string.close),
                     )
+                    }
                 }
             }
         }
@@ -1513,7 +1531,7 @@ fun PluviaMain(
                 }
             }
 
-            DebugPreRunDialog(
+            if (!app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) DebugPreRunDialog(
                 visible = debugPreRunVisible,
                 onStart = {
                     debugPreRunVisible = false
@@ -1552,7 +1570,7 @@ fun PluviaMain(
                 }
             }
 
-            DebugReportDialog(
+            if (!app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) DebugReportDialog(
                 state = debugReportState,
                 hasDiscordToken = discordTokenPresent,
                 onStateChange = { debugReportState = it },
@@ -1572,7 +1590,7 @@ fun PluviaMain(
                 },
             )
 
-            debugPaywallReason?.let { reason ->
+            debugPaywallReason?.takeIf { !app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED }?.let { reason ->
                 Box(modifier = Modifier.zIndex(5f)) {
                     DebugPaywallScreen(
                         gameName = debugReportState.gameName,
@@ -1792,9 +1810,13 @@ fun PluviaMain(
                             )
                         },
                         onAiDebugRun = { appId ->
+                            if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) {
+                                context.startActivity(app.gamenative.assistant.CodexDebugSession.intent(context, appId, setup = true))
+                            } else {
                             debugPreRunAppId = appId
                             debugPreRunOffline = isOffline
                             debugPreRunVisible = true
+                            }
                         },
                         onClickExit = {
                             if (!PrefManager.warnBeforeExit) {

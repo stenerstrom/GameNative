@@ -34,7 +34,7 @@ enum class AppOptionMenuType(@StringRes val title: Int) {
     PlayWithDiagnostics(R.string.option_play_with_diagnostics),
     ShareDiagnostics(R.string.option_share_diagnostics),
     GameAssistant(R.string.option_game_assistant),
-    AiDebugRun(R.string.option_ai_debug_run),
+    AiDebugRun(if (app.gamenative.BuildConfig.AI_ASSISTANT_ENABLED) R.string.codex_debug_mode else R.string.option_ai_debug_run),
     ManageGameContent(R.string.option_manage_dlc),
     ManageWorkshop(R.string.option_manage_workshop),
     ImportFiles(R.string.option_import_files),

@@ -14,7 +14,7 @@ import org.json.JSONObject
 
 interface ConversationStore {
     data class Saved(val history: List<AssistantProtocol.ChatTurn> = emptyList(), val gameAccess: Boolean = false, val fileAccess: Boolean = false,
-        val modAccess: Boolean = false)
+        val modAccess: Boolean = false, val debugReportId: String? = null)
     fun load(game: String, account: String): Saved
     fun save(game: String, account: String, saved: Saved)
 }
@@ -47,7 +47,8 @@ class AssistantConversations(context: Context) : ConversationStore {
                 DiagnosticRedactor.text(turn.getString("assistant")).take(AssistantProtocol.HISTORY_REPLY_CHARS),
                 DiagnosticRedactor.text(turn.optString("displayText", turn.getString("assistant"))).take(AssistantProtocol.HISTORY_REPLY_CHARS))
         }
-        return ConversationStore.Saved(history, json.optBoolean("gameAccess", false), json.optBoolean("fileAccess", false), json.optBoolean("modAccess", false))
+        return ConversationStore.Saved(history, json.optBoolean("gameAccess", false), json.optBoolean("fileAccess", false), json.optBoolean("modAccess", false),
+            json.optString("debugReportId").takeIf { it.matches(Regex("[a-f0-9-]{36}")) })
     }
     override fun save(game: String, account: String, saved: ConversationStore.Saved) {
         val turns = JSONArray()
@@ -58,6 +59,7 @@ class AssistantConversations(context: Context) : ConversationStore {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val json = JSONObject().put("turns", turns).put("gameAccess", saved.gameAccess).put("fileAccess", saved.fileAccess).put("modAccess", saved.modAccess)
+            .put("debugReportId", saved.debugReportId ?: JSONObject.NULL)
         ConfigTransaction.atomicWrite(file(game, account), cipher.iv + cipher.doFinal(json.toString().toByteArray()))
     }
 }

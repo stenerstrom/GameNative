@@ -56,6 +56,7 @@ fun InGameAssistantHost(game: String?) {
     } }
     ControllerTestOverlay(game)
     GameOptimizationOverlay(game)
+    CodexDebugOverlay(game)
     if (!InGameAssistantUi.isOpenFor(game)) return
     val context = LocalContext.current
     val model: GameAssistantViewModel = viewModel(key = "in-game-assistant:$game",
